@@ -28,6 +28,8 @@ struct ElementArgs
 	int objc;
 	Tcl_Obj *CONST *objv;
 	int flagSelf;
+	TreeItem item;
+	TreeItemColumn column;
     } config;
     struct {
 	int x;

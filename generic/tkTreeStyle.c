@@ -2851,6 +2851,8 @@ Element_CreateAndConfig(
     args.config.objc = objc;
     args.config.objv = objv;
     args.config.flagSelf = 0;
+    args.config.item = item;
+    args.config.column = column;
     if ((*type->configProc)(&args) != TCL_OK)
     {
 	(*type->deleteProc)(&args);
@@ -3873,6 +3875,8 @@ Style_SetImageOrText(
 	    args.config.objc = 2;
 	    args.config.objv = objv;
 	    args.config.flagSelf = 0;
+	    args.config.item = item;
+	    args.config.column = column;
 	    if ((*eLink->elem->typePtr->configProc)(&args) != TCL_OK)
 		return TCL_ERROR;
 
@@ -4565,6 +4569,8 @@ TreeStyle_ElementConfigure(
 	args.config.objc = objc;
 	args.config.objv = objv;
 	args.config.flagSelf = 0;
+	args.config.item = item;
+	args.config.column = column;
 	if ((*args.elem->typePtr->configProc)(&args) != TCL_OK)
 	    return TCL_ERROR;
 
@@ -4735,6 +4741,8 @@ TreeElementCmd(
 		args.config.objc = objc - 4;
 		args.config.objv = objv + 4;
 		args.config.flagSelf = 0;
+		args.config.item = NULL;
+		args.config.column = NULL;
 		if ((*elem->typePtr->configProc)(&args) != TCL_OK)
 		    return TCL_ERROR;
 

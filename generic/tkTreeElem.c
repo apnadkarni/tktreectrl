@@ -2027,10 +2027,14 @@ struct ElementText
     int totalWidth;
 #define TEXTVAR
 #ifdef TEXTVAR
+#ifdef DYNAMIC_OPTION
+    DynamicOption *options;
+#else
     Tcl_Obj *varNameObj;		/* -textvariable */
     TreeCtrl *tree;			/* needed to redisplay */
     TreeItem item;			/* needed to redisplay */
     TreeItemColumn column;		/* needed to redisplay */
+#endif /* DYNAMIC_OPTION */
 #endif
 };
 
@@ -2043,6 +2047,24 @@ struct ElementText
 #define TEXT_CONF_TEXTVAR 0x0010
 #endif
 #define TEXT_CONF_DRAW 0x0020
+
+#ifdef DYNAMIC_OPTION
+
+#ifdef TEXTVAR
+typedef struct ElementTextVar {
+    Tcl_Obj *varNameObj;		/* -textvariable */
+    TreeCtrl *tree;			/* needed to redisplay */
+    TreeItem item;			/* needed to redisplay */
+    TreeItemColumn column;		/* needed to redisplay */
+} ElementTextVar;
+#endif
+
+static DynamicOptionSpec textDynamicSpecs[] = {
+    { "-textvariable", 1001, sizeof(struct ElementTextVar) },
+    { NULL }
+};
+
+#endif /* DYNAMIC_OPTION */
 
 static CONST char *textDataTypeST[] = { "double", "integer", "long", "string",
 					"time", (char *) NULL };
@@ -2080,7 +2102,11 @@ static Tk_OptionSpec textOptionSpecs[] = {
      TK_OPTION_NULL_OK, (ClientData) NULL, TEXT_CONF_TEXTOBJ},
 #ifdef TEXTVAR
     {TK_OPTION_STRING, "-textvariable", (char *) NULL, (char *) NULL,
+#ifdef DYNAMIC_OPTION
+     (char *) NULL, Tk_Offset(struct ElementTextVar, varNameObj), -1,
+#else
      (char *) NULL, Tk_Offset(ElementText, varNameObj), -1,
+#endif
      TK_OPTION_NULL_OK, (ClientData) NULL, TEXT_CONF_TEXTVAR},
 #endif
     {TK_OPTION_PIXELS, "-width", (char *) NULL, (char *) NULL,
@@ -2135,7 +2161,12 @@ static void TextUpdateStringRep(ElementArgs *args)
     ElementText *masterX = (ElementText *) elem->master;
     Tcl_Obj *dataObj, *formatObj, *textObj;
 #ifdef TEXTVAR
+#ifdef DYNAMIC_OPTION
+    ElementTextVar *etv = (ElementTextVar *) DynamicOption_FindData(elemX->options, 1001);
+    Tcl_Obj *varNameObj = etv ? etv->varNameObj : NULL;
+#else
     Tcl_Obj *varNameObj = elemX->varNameObj;
+#endif
 #endif
     int dataType;
 
@@ -2401,8 +2432,16 @@ static Tcl_VarTraceProc VarTraceProc_Text;
 
 static void TextTraceSet(Tcl_Interp *interp, ElementText *elemX)
 {
+#ifdef DYNAMIC_OPTION
+    ElementTextVar *etv = (ElementTextVar *) DynamicOption_FindData(elemX->options, 1001);
+    Tcl_Obj *varNameObj = etv ? etv->varNameObj : NULL;
+
+    if (varNameObj != NULL) {
+	Tcl_TraceVar2(interp, Tcl_GetString(varNameObj),
+#else
     if (elemX->varNameObj != NULL) {
 	Tcl_TraceVar2(interp, Tcl_GetString(elemX->varNameObj),
+#endif
 	    NULL,
 	    TCL_GLOBAL_ONLY | TCL_TRACE_WRITES | TCL_TRACE_UNSETS,
 	    VarTraceProc_Text, (ClientData) elemX);
@@ -2411,8 +2450,16 @@ static void TextTraceSet(Tcl_Interp *interp, ElementText *elemX)
 
 static void TextTraceUnset(Tcl_Interp *interp, ElementText *elemX)
 {
+#ifdef DYNAMIC_OPTION
+    ElementTextVar *etv = (ElementTextVar *) DynamicOption_FindData(elemX->options, 1001);
+    Tcl_Obj *varNameObj = etv ? etv->varNameObj : NULL;
+
+    if (varNameObj != NULL) {
+	Tcl_UntraceVar2(interp, Tcl_GetString(varNameObj),
+#else
     if (elemX->varNameObj != NULL) {
 	Tcl_UntraceVar2(interp, Tcl_GetString(elemX->varNameObj),
+#endif
 	    NULL,
 	    TCL_GLOBAL_ONLY | TCL_TRACE_WRITES | TCL_TRACE_UNSETS,
 	    VarTraceProc_Text, (ClientData) elemX);
@@ -2424,7 +2471,12 @@ static char *VarTraceProc_Text(ClientData clientData, Tcl_Interp *interp,
 {
     ElementText *elemX = (ElementText *) clientData;
     ElementText *masterX = (ElementText *) elemX->header.master;
+#ifdef DYNAMIC_OPTION
+    ElementTextVar *etv = (ElementTextVar *) DynamicOption_FindData(elemX->options, 1001);
+    Tcl_Obj *varNameObj = etv ? etv->varNameObj : NULL;
+#else
     Tcl_Obj *varNameObj = elemX->varNameObj;
+#endif
     Tcl_Obj *valueObj;
 
     /*
@@ -2455,8 +2507,13 @@ static char *VarTraceProc_Text(ClientData clientData, Tcl_Interp *interp,
     }
 
     elemX->stringRepInvalid = TRUE;
+#ifdef DYNAMIC_OPTION
+    Tree_ElementChangedItself(etv->tree, etv->item, etv->column,
+	(Element *) elemX, CS_LAYOUT | CS_DISPLAY);
+#else
     Tree_ElementChangedItself(elemX->tree, elemX->item, elemX->column,
 	(Element *) elemX, CS_LAYOUT | CS_DISPLAY);
+#endif
     return (char *) NULL;
 }
 #endif /* TEXTVAR */
@@ -2478,6 +2535,9 @@ static void DeleteProcText(ElementArgs *args)
 #ifdef TEXTVAR
     TextTraceUnset(tree->interp, elemX);
 #endif
+#ifdef DYNAMIC_OPTION
+    DynamicOption_Free(elemX->options, elem->typePtr->optionTable, tree->tkwin);
+#endif
 }
 
 static int ConfigProcText(ElementArgs *args)
@@ -2489,6 +2549,12 @@ static int ConfigProcText(ElementArgs *args)
     Tk_SavedOptions savedOptions;
     int error;
     Tcl_Obj *errorResult = NULL;
+#ifdef TEXTVAR
+#ifdef DYNAMIC_OPTION
+    ElementTextVar *etv;
+    Tcl_Obj *varNameObj;
+#endif
+#endif
 
 #ifdef TEXTVAR
     TextTraceUnset(interp, elemX);
@@ -2496,18 +2562,40 @@ static int ConfigProcText(ElementArgs *args)
 
     for (error = 0; error <= 1; error++) {
 	if (error == 0) {
+#ifdef DYNAMIC_OPTION
+	    if (Tree_SetOptions(tree, (char *) elemX, 
+		    elem->typePtr->optionTable, textOptionSpecs,
+		    &elemX->options, textDynamicSpecs,
+		    args->config.objc, args->config.objv,
+		    &savedOptions, &args->config.flagSelf) != TCL_OK) {
+#else
 	    if (Tk_SetOptions(interp, (char *) elemX,
 			elem->typePtr->optionTable,
 			args->config.objc, args->config.objv, tree->tkwin,
 			&savedOptions, &args->config.flagSelf) != TCL_OK) {
+#endif
 		args->config.flagSelf = 0;
 		continue;
 	    }
 
 #ifdef TEXTVAR
+#ifdef DYNAMIC_OPTION
+	    etv = (ElementTextVar *) DynamicOption_FindData(elemX->options, 1001);
+	    if (etv != NULL) {
+		etv->tree = tree;
+		etv->item = args->config.item;
+		etv->column = args->config.column;
+		varNameObj = etv->varNameObj;
+	    } else
+		varNameObj = NULL;
+	    if (varNameObj != NULL) {
+		Tcl_Obj *valueObj;
+		valueObj = Tcl_ObjGetVar2(interp, varNameObj,
+#else
 	    if (elemX->varNameObj != NULL) {
 		Tcl_Obj *valueObj;
 		valueObj = Tcl_ObjGetVar2(interp, elemX->varNameObj,
+#endif
 			NULL, TCL_GLOBAL_ONLY);
 		if (valueObj == NULL) {
 		    ElementText *masterX = (ElementText *) elem->master;
@@ -2526,7 +2614,11 @@ static int ConfigProcText(ElementArgs *args)
 		    Tcl_IncrRefCount(valueObj);
 		    /* This validates the variable name. We get an error
 		     * if it is the name of an array */
+#ifdef DYNAMIC_OPTION
+		    if (Tcl_ObjSetVar2(interp, varNameObj, NULL,
+#else
 		    if (Tcl_ObjSetVar2(interp, elemX->varNameObj, NULL,
+#endif
 			    valueObj, TCL_GLOBAL_ONLY | TCL_LEAVE_ERR_MSG)
 			    == NULL) {
 			Tcl_DecrRefCount(valueObj);
@@ -2568,9 +2660,11 @@ static int CreateProcText(ElementArgs *args)
     elemX->lines = -1;
     elemX->wrap = TEXT_WRAP_NULL;
 #ifdef TEXTVAR
+#ifndef DYNAMIC_OPTION
     elemX->tree = args->tree;
     elemX->item = args->create.item;
     elemX->column = args->create.column;
+#endif
 #endif
     return TCL_OK;
 }

@@ -2976,7 +2976,8 @@ struct AllocData
 #ifdef ALLOC_STATS
 struct AllocStats {
     Tk_Uid id;			/* Name for reporting results. */
-    unsigned alloc;		/* Total allocated bytes. */
+    unsigned count;		/* Number of allocations. */
+    unsigned size;		/* Total allocated bytes. */
     AllocStats *next;		/* Linked list. */
 };
 #endif
@@ -3009,7 +3010,8 @@ AllocStats_Get(
     if (stats == NULL) {
 	stats = (AllocStats *) ckalloc(sizeof(AllocStats));
 	stats->id = id;
-	stats->alloc = 0;
+	stats->count = 0;
+	stats->size = 0;
 	stats->next = data->stats;
 	data->stats = stats;
     }
@@ -3028,8 +3030,9 @@ AllocHax_Stats(
 
     buf[0] = '\0';
     while (stats != NULL) {
-	len += sprintf(buf + len, "%-20s: %8d B %5d KB\n", stats->id, stats->alloc,
-		(stats->alloc + 1023) / 1024);
+	len += sprintf(buf + len, "%-20s: %8d : %8d B %5d KB\n",
+		stats->id, stats->count,
+		stats->size, (stats->size + 1023) / 1024);
 	stats = stats->next;
     }
     return buf;
@@ -3071,7 +3074,8 @@ AllocHax_Alloc(
     int i;
 
 #ifdef ALLOC_STATS
-    stats->alloc += size;
+    stats->count++;
+    stats->size += size;
 #endif
 
     while ((freeList != NULL) && (freeList->size != size))
@@ -3202,7 +3206,8 @@ AllocHax_Free(
 #endif
 
 #ifdef ALLOC_STATS
-    stats->alloc -= size;
+    stats->count--;
+    stats->size -= size;
 #endif
 
     /*
@@ -3260,6 +3265,13 @@ AllocHax_CAlloc(
     )
 {
     int n = (count / roundUp) * roundUp + ((count % roundUp) ? roundUp : 0);
+#ifdef ALLOC_STATS
+    AllocStats *stats = AllocStats_Get(data, id);
+#endif
+
+#ifdef ALLOC_STATS
+    stats->count += count - 1;
+#endif
     return AllocHax_Alloc(data, id, size * n);
 }
 
@@ -3292,7 +3304,14 @@ AllocHax_CFree(
     )
 {
     int n = (count / roundUp) * roundUp + ((count % roundUp) ? roundUp : 0);
+#ifdef ALLOC_STATS
+    AllocStats *stats = AllocStats_Get(data, id);
+#endif
+
     AllocHax_Free(data, id, ptr, size * n);
+#ifdef ALLOC_STATS
+    stats->count -= count - 1;
+#endif
 }
 
 /*
@@ -4716,3 +4735,194 @@ PerStateCO_Init(
     }
     return TCL_ERROR;
 }
+
+#ifdef DYNAMIC_OPTION
+
+ClientData
+DynamicOption_FindData(
+    DynamicOption *first,
+    int id
+    )
+{
+    DynamicOption *opt = first;
+
+    while (opt != NULL) {
+	if (opt->id == id)
+	    return opt->data;
+	opt = opt->next;
+    }
+    return NULL;
+}
+
+ClientData
+DynamicOption_GetData(
+    DynamicOption **firstPtr,
+    CONST DynamicOptionSpec *spec
+    )
+{
+    DynamicOption *opt = *firstPtr;
+
+    while (opt != NULL) {
+	if (opt->id == spec->id)
+	    return opt->data;
+	opt = opt->next;
+    }
+    opt = (DynamicOption *) ckalloc(sizeof(DynamicOption));
+    opt->id = spec->id;
+    opt->data = (ClientData) ckalloc(spec->size);
+    opt->next = *firstPtr;
+    *firstPtr = opt;
+    return opt->data;
+}
+
+void
+DynamicOption_Free(
+    DynamicOption *first,
+    Tk_OptionTable optionTable,
+    Tk_Window tkwin
+    )
+{
+    DynamicOption *opt = first;
+
+    while (opt != NULL) {
+	DynamicOption *next = opt->next;
+	Tk_FreeConfigOptions((char *) opt->data, optionTable, tkwin);
+	ckfree((char *) opt->data);
+	ckfree((char *) opt);
+	opt = next;
+    }
+   
+}
+
+static
+CONST Tk_OptionSpec *
+GetSpecFromObj(
+    Tcl_Interp *interp,
+    Tcl_Obj *objPtr,
+    CONST Tk_OptionSpec *specs
+    )
+{
+    CONST char *name, *p1, *p2;
+    CONST Tk_OptionSpec *bestPtr, *specPtr = specs;
+
+    name = Tcl_GetStringFromObj(objPtr, NULL);
+    bestPtr = NULL;
+    while (specPtr->type != TK_OPTION_END) {
+	for (p1 = name, p2 = specPtr->optionName;
+		*p1 == *p2; p1++, p2++) {
+	    if (*p1 == 0)
+		return specs;
+	}
+	if (*p1 == 0) {
+	    if (bestPtr == NULL)
+		bestPtr = specPtr;
+	    else {
+		if (strcmp(bestPtr->optionName, specPtr->optionName))
+		    return NULL;
+	    }
+	}
+	specPtr++;
+    }
+    return bestPtr;
+}
+
+static CONST DynamicOptionSpec *
+FindDynamicSpec(
+    CONST DynamicOptionSpec *dynamicSpecs,
+    CONST char *name
+    )
+{
+    CONST DynamicOptionSpec *dynamicSpec;
+
+    dynamicSpec = dynamicSpecs;
+    while (dynamicSpec->name != NULL) {
+	if (!strcmp(name, dynamicSpec->name))
+	    return dynamicSpec;
+	dynamicSpec++;
+    }
+    return NULL;
+}
+
+int
+Tree_SetOptions(
+    TreeCtrl *tree,
+    char *recordPtr,
+    Tk_OptionTable optionTable,
+    CONST Tk_OptionSpec *specs,
+    DynamicOption **firstPtr,
+    CONST DynamicOptionSpec *dynamicSpecs,
+    int objc, 
+    Tcl_Obj *CONST objv[],
+    Tk_SavedOptions *savePtr,
+    int *maskPtr
+    )
+{
+    Tcl_Interp *interp = tree->interp;
+    CONST Tk_OptionSpec *spec;
+    CONST DynamicOptionSpec *dynamicSpec;
+    Tk_SavedOptions *save2Ptr, *firstSavePtr = NULL, *lastSavePtr = NULL;
+    Tcl_Obj *normalObjv[20];
+    int i, mask, normalObjc = 0;
+
+    *maskPtr = 0;
+    /* FIXME: check num args % 2 */
+
+    for (i = 0; i < objc; i += 2) {
+	spec = GetSpecFromObj(interp, objv[i], specs);
+	if (spec == NULL)
+	    goto error;
+	dynamicSpec = FindDynamicSpec(dynamicSpecs, spec->optionName);
+	if (dynamicSpec != NULL) {
+	    ClientData data = DynamicOption_GetData(firstPtr, dynamicSpec);
+	    save2Ptr = (Tk_SavedOptions *) ckalloc(sizeof(Tk_SavedOptions));
+	    if (firstSavePtr == NULL)
+		firstSavePtr = save2Ptr;
+	    if (lastSavePtr != NULL)
+		lastSavePtr->nextPtr = save2Ptr;
+	    lastSavePtr = save2Ptr;
+	    if (Tk_SetOptions(interp, (char *) data, optionTable,
+		    2, objv + i, tree->tkwin, save2Ptr, &mask) != TCL_OK) {
+		goto error;
+	    }
+	    *maskPtr |= mask;
+	    continue;
+	}
+	normalObjv[normalObjc++] = objv[i];
+	normalObjv[normalObjc++] = objv[i + 1];
+    }
+    if (Tk_SetOptions(interp, recordPtr, optionTable,
+	    normalObjc, normalObjv, tree->tkwin, savePtr, &mask) != TCL_OK) {
+	goto error;
+    }
+    *maskPtr |= mask;
+    savePtr->nextPtr = firstSavePtr;
+    return TCL_OK;
+
+error:
+    if (firstSavePtr != NULL)
+	Tk_RestoreSavedOptions(firstSavePtr);
+    ckfree((char *) firstSavePtr);
+    return TCL_ERROR;
+}
+
+Tree_GetOptionValue(
+    )
+{
+}
+
+Tree_GetOptionInfo(
+    )
+{
+}
+
+Tree_InitOptions(
+    )
+{
+}
+
+Tree_FreeConfigOptions(
+    )
+{
+}
+
+#endif /* DYNAMIC_OPTION */
