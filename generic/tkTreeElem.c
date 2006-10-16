@@ -2027,9 +2027,7 @@ struct ElementText
     int totalWidth;
 #define TEXTVAR
 #ifdef TEXTVAR
-#ifdef DYNAMIC_OPTION
-    DynamicOption *options;
-#else
+#ifndef DYNAMIC_OPTION
     Tcl_Obj *varNameObj;		/* -textvariable */
     TreeCtrl *tree;			/* needed to redisplay */
     TreeItem item;			/* needed to redisplay */
@@ -2058,11 +2056,6 @@ typedef struct ElementTextVar {
     TreeItemColumn column;		/* needed to redisplay */
 } ElementTextVar;
 #endif
-
-static DynamicOptionSpec textDynamicSpecs[] = {
-    { "-textvariable", 1001, sizeof(struct ElementTextVar) },
-    { NULL }
-};
 
 #endif /* DYNAMIC_OPTION */
 
@@ -2101,9 +2094,9 @@ static Tk_OptionSpec textOptionSpecs[] = {
      Tk_Offset(ElementText, text),
      TK_OPTION_NULL_OK, (ClientData) NULL, TEXT_CONF_TEXTOBJ},
 #ifdef TEXTVAR
-    {TK_OPTION_STRING, "-textvariable", (char *) NULL, (char *) NULL,
+    {TK_OPTION_CUSTOM, "-textvariable", (char *) NULL, (char *) NULL,
 #ifdef DYNAMIC_OPTION
-     (char *) NULL, Tk_Offset(struct ElementTextVar, varNameObj), -1,
+     (char *) NULL, -1, Tk_Offset(Element, options),
 #else
      (char *) NULL, Tk_Offset(ElementText, varNameObj), -1,
 #endif
@@ -2162,7 +2155,7 @@ static void TextUpdateStringRep(ElementArgs *args)
     Tcl_Obj *dataObj, *formatObj, *textObj;
 #ifdef TEXTVAR
 #ifdef DYNAMIC_OPTION
-    ElementTextVar *etv = (ElementTextVar *) DynamicOption_FindData(elemX->options, 1001);
+    ElementTextVar *etv = (ElementTextVar *) DynamicOption_FindData(elem->options, 1001);
     Tcl_Obj *varNameObj = etv ? etv->varNameObj : NULL;
 #else
     Tcl_Obj *varNameObj = elemX->varNameObj;
@@ -2433,7 +2426,7 @@ static Tcl_VarTraceProc VarTraceProc_Text;
 static void TextTraceSet(Tcl_Interp *interp, ElementText *elemX)
 {
 #ifdef DYNAMIC_OPTION
-    ElementTextVar *etv = (ElementTextVar *) DynamicOption_FindData(elemX->options, 1001);
+    ElementTextVar *etv = (ElementTextVar *) DynamicOption_FindData(elemX->header.options, 1001);
     Tcl_Obj *varNameObj = etv ? etv->varNameObj : NULL;
 
     if (varNameObj != NULL) {
@@ -2451,7 +2444,7 @@ static void TextTraceSet(Tcl_Interp *interp, ElementText *elemX)
 static void TextTraceUnset(Tcl_Interp *interp, ElementText *elemX)
 {
 #ifdef DYNAMIC_OPTION
-    ElementTextVar *etv = (ElementTextVar *) DynamicOption_FindData(elemX->options, 1001);
+    ElementTextVar *etv = (ElementTextVar *) DynamicOption_FindData(elemX->header.options, 1001);
     Tcl_Obj *varNameObj = etv ? etv->varNameObj : NULL;
 
     if (varNameObj != NULL) {
@@ -2472,7 +2465,7 @@ static char *VarTraceProc_Text(ClientData clientData, Tcl_Interp *interp,
     ElementText *elemX = (ElementText *) clientData;
     ElementText *masterX = (ElementText *) elemX->header.master;
 #ifdef DYNAMIC_OPTION
-    ElementTextVar *etv = (ElementTextVar *) DynamicOption_FindData(elemX->options, 1001);
+    ElementTextVar *etv = (ElementTextVar *) DynamicOption_FindData(elemX->header.options, 1001);
     Tcl_Obj *varNameObj = etv ? etv->varNameObj : NULL;
 #else
     Tcl_Obj *varNameObj = elemX->varNameObj;
@@ -2535,9 +2528,6 @@ static void DeleteProcText(ElementArgs *args)
 #ifdef TEXTVAR
     TextTraceUnset(tree->interp, elemX);
 #endif
-#ifdef DYNAMIC_OPTION
-    DynamicOption_Free(elemX->options, elem->typePtr->optionTable, tree->tkwin);
-#endif
 }
 
 static int ConfigProcText(ElementArgs *args)
@@ -2562,25 +2552,17 @@ static int ConfigProcText(ElementArgs *args)
 
     for (error = 0; error <= 1; error++) {
 	if (error == 0) {
-#ifdef DYNAMIC_OPTION
-	    if (Tree_SetOptions(tree, (char *) elemX, 
-		    elem->typePtr->optionTable, textOptionSpecs,
-		    &elemX->options, textDynamicSpecs,
-		    args->config.objc, args->config.objv,
-		    &savedOptions, &args->config.flagSelf) != TCL_OK) {
-#else
 	    if (Tk_SetOptions(interp, (char *) elemX,
 			elem->typePtr->optionTable,
 			args->config.objc, args->config.objv, tree->tkwin,
 			&savedOptions, &args->config.flagSelf) != TCL_OK) {
-#endif
 		args->config.flagSelf = 0;
 		continue;
 	    }
 
 #ifdef TEXTVAR
 #ifdef DYNAMIC_OPTION
-	    etv = (ElementTextVar *) DynamicOption_FindData(elemX->options, 1001);
+	    etv = (ElementTextVar *) DynamicOption_FindData(elem->options, 1001);
 	    if (etv != NULL) {
 		etv->tree = tree;
 		etv->item = args->config.item;
@@ -3885,6 +3867,12 @@ int TreeElement_Init(Tcl_Interp *interp)
     StringTableCO_Init(elemTypeText.optionSpecs, "-datatype", textDataTypeST);
     StringTableCO_Init(elemTypeText.optionSpecs, "-justify", textJustifyST);
     StringTableCO_Init(elemTypeText.optionSpecs, "-wrap", textWrapST);
+#ifdef DYNAMIC_OPTION
+    DynamicCO_Init(elemTypeText.optionSpecs, "-textvariable",
+	1001, sizeof(ElementTextVar),
+	Tk_Offset(struct ElementTextVar, varNameObj),
+	-1, &stringCO);
+#endif
 
     PerStateCO_Init(elemTypeWindow.optionSpecs, "-draw",
 	&pstBoolean, TreeStateFromObj);

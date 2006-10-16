@@ -1015,27 +1015,29 @@ extern int PerStateCO_Init(Tk_OptionSpec *optionTable, CONST char *optionName,
 typedef struct DynamicOptionSpec DynamicOptionSpec;
 typedef struct DynamicOption DynamicOption;
 
-struct DynamicOptionSpec
-{
-    CONST char *name;
-    int id;
-    int size;
-    Tk_OptionSpec *spec; /* use for faster lookup */
-};
-
 struct DynamicOption
 {
     int id;
-    ClientData data;
+    char *data;
     DynamicOption *next;
 };
 
-extern ClientData DynamicOption_FindData(DynamicOption *first, int id);
-extern void DynamicOption_Free(DynamicOption *first, Tk_OptionTable optionTable, Tk_Window tkwin);
-int Tree_SetOptions(TreeCtrl *tree, char *recordPtr,
-    Tk_OptionTable optionTable, CONST Tk_OptionSpec *specs,
-    DynamicOption **firstPtr, CONST DynamicOptionSpec *dynamicSpecs,
-    int objc, Tcl_Obj *CONST objv[], Tk_SavedOptions *savePtr, int *maskPtr);
+extern char *DynamicOption_FindData(DynamicOption *first, int id);
+extern void DynamicOption_Free(DynamicOption *first);
+
+extern int
+DynamicCO_Init(
+    Tk_OptionSpec *optionTable,
+    CONST char *optionName,
+    int id,
+    int size,
+    int objOffset,
+    int internalOffset,
+    Tk_ObjCustomOption *custom
+    );
+
+extern Tk_ObjCustomOption stringCO;
+
 #endif
 
 /*****/

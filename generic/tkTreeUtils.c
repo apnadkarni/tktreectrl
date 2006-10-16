@@ -4738,8 +4738,10 @@ PerStateCO_Init(
 
 #ifdef DYNAMIC_OPTION
 
-ClientData
-DynamicOption_FindData(
+#define DEBUG_DYNAMICxxx
+
+DynamicOption *
+DynamicOption_Find(
     DynamicOption *first,
     int id
     )
@@ -4748,45 +4750,59 @@ DynamicOption_FindData(
 
     while (opt != NULL) {
 	if (opt->id == id)
-	    return opt->data;
+	    return opt;
 	opt = opt->next;
     }
     return NULL;
 }
 
-ClientData
-DynamicOption_GetData(
+char *
+DynamicOption_FindData(
+    DynamicOption *first,
+    int id
+    )
+{
+    DynamicOption *opt = DynamicOption_Find(first, id);
+    if (opt != NULL)
+	return opt->data;
+    return NULL;
+}
+
+DynamicOption *
+DynamicOption_AllocIfNeeded(
     DynamicOption **firstPtr,
-    CONST DynamicOptionSpec *spec
+    int id,
+    int size
     )
 {
     DynamicOption *opt = *firstPtr;
 
     while (opt != NULL) {
-	if (opt->id == spec->id)
-	    return opt->data;
+	if (opt->id == id)
+	    return opt;
 	opt = opt->next;
     }
+#ifdef DEBUG_DYNAMIC
+dbwin("DynamicOption_AllocIfNeeded allocated id=%d\n", id);
+#endif
     opt = (DynamicOption *) ckalloc(sizeof(DynamicOption));
-    opt->id = spec->id;
-    opt->data = (ClientData) ckalloc(spec->size);
+    opt->id = id;
+    opt->data = (ClientData) ckalloc(size);
+    memset(opt->data, '\0', size); /* FIXME: per-option init proc */
     opt->next = *firstPtr;
     *firstPtr = opt;
-    return opt->data;
+    return opt;
 }
 
 void
 DynamicOption_Free(
-    DynamicOption *first,
-    Tk_OptionTable optionTable,
-    Tk_Window tkwin
+    DynamicOption *first
     )
 {
     DynamicOption *opt = first;
 
     while (opt != NULL) {
 	DynamicOption *next = opt->next;
-	Tk_FreeConfigOptions((char *) opt->data, optionTable, tkwin);
 	ckfree((char *) opt->data);
 	ckfree((char *) opt);
 	opt = next;
@@ -4794,135 +4810,304 @@ DynamicOption_Free(
    
 }
 
-static
-CONST Tk_OptionSpec *
-GetSpecFromObj(
+typedef struct DynamicCOClientData
+{
+    int id;
+    int size;
+    int objOffset;
+    int internalOffset;
+    Tk_ObjCustomOption *custom;
+} DynamicCOClientData;
+
+typedef struct DynamicCOSave
+{
+    Tcl_Obj *objPtr;
+    double internalForm;	/* This can't be first, or OptionHax_xxx
+				 * may enter its address twice: once by
+				 * DynamicCO_Set, and once for PerStateCO_Set */
+} DynamicCOSave;
+
+static int
+DynamicCO_Set(
+    ClientData clientData,
     Tcl_Interp *interp,
-    Tcl_Obj *objPtr,
-    CONST Tk_OptionSpec *specs
+    Tk_Window tkwin,
+    Tcl_Obj **value,
+    char *recordPtr,
+    int internalOffset,
+    char *saveInternalPtr,
+    int flags
     )
 {
-    CONST char *name, *p1, *p2;
-    CONST Tk_OptionSpec *bestPtr, *specPtr = specs;
+    TreeCtrl *tree = (TreeCtrl *) ((TkWindow *) tkwin)->instanceData;
+    DynamicCOClientData *cd = (DynamicCOClientData *) clientData;
+    DynamicOption **firstPtr, *opt;
+    DynamicCOSave *save;
+    Tcl_Obj **objPtrPtr;
 
-    name = Tcl_GetStringFromObj(objPtr, NULL);
-    bestPtr = NULL;
-    while (specPtr->type != TK_OPTION_END) {
-	for (p1 = name, p2 = specPtr->optionName;
-		*p1 == *p2; p1++, p2++) {
-	    if (*p1 == 0)
-		return specs;
+
+    /* Get pointer to the head of the list of dynamic options. */
+    firstPtr = (DynamicOption **) (recordPtr + internalOffset);
+
+    /* Get the dynamic option record. Create it if needed, and update the
+     * linked list of dynamic options. */
+    opt = DynamicOption_AllocIfNeeded(firstPtr, cd->id, cd->size);
+
+    if (cd->objOffset >= 0) {
+	save = (DynamicCOSave *) ckalloc(sizeof(DynamicCOSave));
+#ifdef DEBUG_DYNAMIC
+dbwin("DynamicCO_Set id=%d save=%p\n", cd->id, save);
+#endif
+	if (cd->custom->setProc(cd->custom->clientData, interp, tkwin, value,
+		opt->data, cd->internalOffset, (char *) &save->internalForm,
+		flags) != TCL_OK) {
+	    ckfree((char *) save);
+	    return TCL_ERROR;
 	}
-	if (*p1 == 0) {
-	    if (bestPtr == NULL)
-		bestPtr = specPtr;
-	    else {
-		if (strcmp(bestPtr->optionName, specPtr->optionName))
-		    return NULL;
-	    }
+
+	objPtrPtr = (Tcl_Obj **) (opt->data + cd->objOffset);
+	save->objPtr = *objPtrPtr;
+
+#ifdef DEBUG_DYNAMIC
+dbwin("saving object '%s'\n", *value ? Tcl_GetString(*value) : "NULL");
+#endif
+	*objPtrPtr = *value;
+	Tcl_IncrRefCount(*value);
+
+	*(DynamicCOSave **) saveInternalPtr = save;
+	OptionHax_Remember(tree, saveInternalPtr);
+    } else {
+#ifdef DEBUG_DYNAMIC
+dbwin("DynamicCO_Set id=%d save=NULL\n", cd->id);
+#endif
+	if (cd->custom->setProc(cd->custom->clientData, interp, tkwin, value,
+		opt->data, cd->internalOffset, saveInternalPtr, flags) != TCL_OK) {
+	    return TCL_ERROR;
 	}
-	specPtr++;
     }
-    return bestPtr;
+
+    return TCL_OK;
 }
 
-static CONST DynamicOptionSpec *
-FindDynamicSpec(
-    CONST DynamicOptionSpec *dynamicSpecs,
-    CONST char *name
+static Tcl_Obj *
+DynamicCO_Get(
+    ClientData clientData,
+    Tk_Window tkwin,
+    char *recordPtr,
+    int internalOffset
     )
 {
-    CONST DynamicOptionSpec *dynamicSpec;
+    DynamicCOClientData *cd = (DynamicCOClientData *) clientData;
+    DynamicOption *first = *(DynamicOption **) (recordPtr + internalOffset);
+    DynamicOption *opt = DynamicOption_Find(first, cd->id);
 
-    dynamicSpec = dynamicSpecs;
-    while (dynamicSpec->name != NULL) {
-	if (!strcmp(name, dynamicSpec->name))
-	    return dynamicSpec;
-	dynamicSpec++;
+#ifdef DEBUG_DYNAMIC
+dbwin("DynamicCO_Get id=%d opt=%p objOffset=%d\n", cd->id, opt, cd->objOffset);
+#endif
+    if (opt == NULL)
+	return NULL;
+
+    if (cd->objOffset >= 0) {
+	return *(Tcl_Obj **) (opt->data + cd->objOffset);
     }
+
+    if (cd->custom->getProc != NULL)
+	return cd->custom->getProc(cd->custom->clientData, tkwin, opt->data, cd->internalOffset);
     return NULL;
 }
 
-int
-Tree_SetOptions(
-    TreeCtrl *tree,
-    char *recordPtr,
-    Tk_OptionTable optionTable,
-    CONST Tk_OptionSpec *specs,
-    DynamicOption **firstPtr,
-    CONST DynamicOptionSpec *dynamicSpecs,
-    int objc, 
-    Tcl_Obj *CONST objv[],
-    Tk_SavedOptions *savePtr,
-    int *maskPtr
+static void
+DynamicCO_Restore(
+    ClientData clientData,
+    Tk_Window tkwin,
+    char *internalPtr,
+    char *saveInternalPtr
     )
 {
-    Tcl_Interp *interp = tree->interp;
-    CONST Tk_OptionSpec *spec;
-    CONST DynamicOptionSpec *dynamicSpec;
-    Tk_SavedOptions *save2Ptr, *firstSavePtr = NULL, *lastSavePtr = NULL;
-    Tcl_Obj *normalObjv[20];
-    int i, mask, normalObjc = 0;
+    DynamicCOClientData *cd = (DynamicCOClientData *) clientData;
+    DynamicCOSave *save;
+    Tcl_Obj **objPtrPtr;
 
-    *maskPtr = 0;
-    /* FIXME: check num args % 2 */
+#ifdef DEBUG_DYNAMIC
+dbwin("DynamicCO_Restore id=%d internalOffset=%d\n", cd->id, cd->internalOffset);
+#endif
+    if (cd->internalOffset >= 0 && cd->custom->restoreProc != NULL)
+	cd->custom->restoreProc(cd->custom->clientData, tkwin, internalPtr, saveInternalPtr);
 
-    for (i = 0; i < objc; i += 2) {
-	spec = GetSpecFromObj(interp, objv[i], specs);
-	if (spec == NULL)
-	    goto error;
-	dynamicSpec = FindDynamicSpec(dynamicSpecs, spec->optionName);
-	if (dynamicSpec != NULL) {
-	    ClientData data = DynamicOption_GetData(firstPtr, dynamicSpec);
-	    save2Ptr = (Tk_SavedOptions *) ckalloc(sizeof(Tk_SavedOptions));
-	    if (firstSavePtr == NULL)
-		firstSavePtr = save2Ptr;
-	    if (lastSavePtr != NULL)
-		lastSavePtr->nextPtr = save2Ptr;
-	    lastSavePtr = save2Ptr;
-	    if (Tk_SetOptions(interp, (char *) data, optionTable,
-		    2, objv + i, tree->tkwin, save2Ptr, &mask) != TCL_OK) {
-		goto error;
-	    }
-	    *maskPtr |= mask;
+    if (cd->objOffset >= 0) {
+	objPtrPtr = (Tcl_Obj **) (internalPtr + cd->objOffset);
+	if (*objPtrPtr != NULL)
+	    Tcl_DecrRefCount(*objPtrPtr);
+	save = (DynamicCOSave *) saveInternalPtr;
+	*objPtrPtr = save->objPtr;
+    }
+}
+
+static void
+DynamicCO_Free(
+    ClientData clientData,
+    Tk_Window tkwin,
+    char *internalPtr
+    )
+{
+    TreeCtrl *tree = (TreeCtrl *) ((TkWindow *) tkwin)->instanceData;
+    DynamicCOClientData *cd = (DynamicCOClientData *) clientData;
+    DynamicCOSave *save;
+
+    if (OptionHax_Forget(tree, internalPtr)) {
+	save = *(DynamicCOSave **) internalPtr;
+#ifdef DEBUG_DYNAMIC
+dbwin("DynamicCO_Free id=%d save=%p\n", cd->id, save);
+#endif
+	if (cd->internalOffset >= 0 && cd->custom->freeProc != NULL)
+	    cd->custom->freeProc(cd->custom->clientData, tkwin,
+		    (char *) &save->internalForm);
+	ckfree((char *) save);
+    } else {
+#ifdef DEBUG_DYNAMIC
+dbwin("DynamicCO_Free id=%d save=NULL\n", cd->id);
+#endif
+	if (cd->internalOffset >= 0 && cd->custom->freeProc != NULL)
+	    cd->custom->freeProc(cd->custom->clientData, tkwin, internalPtr);
+    }
+}
+
+int
+DynamicCO_Init(
+    Tk_OptionSpec *optionTable,
+    CONST char *optionName,
+    int id,
+    int size,
+    int objOffset,
+    int internalOffset,
+    Tk_ObjCustomOption *custom
+    )
+{
+    DynamicCOClientData *cd;
+    Tk_ObjCustomOption *co;
+    int i;
+
+    for (i = 0; optionTable[i].type != TK_OPTION_END; i++) {
+	if (strcmp(optionTable[i].optionName, optionName))
 	    continue;
-	}
-	normalObjv[normalObjc++] = objv[i];
-	normalObjv[normalObjc++] = objv[i + 1];
-    }
-    if (Tk_SetOptions(interp, recordPtr, optionTable,
-	    normalObjc, normalObjv, tree->tkwin, savePtr, &mask) != TCL_OK) {
-	goto error;
-    }
-    *maskPtr |= mask;
-    savePtr->nextPtr = firstSavePtr;
-    return TCL_OK;
 
-error:
-    if (firstSavePtr != NULL)
-	Tk_RestoreSavedOptions(firstSavePtr);
-    ckfree((char *) firstSavePtr);
+	if (optionTable[i].clientData != NULL)
+	    return TCL_OK;
+
+	/* ClientData for the Tk custom option record */
+	cd = (DynamicCOClientData *) ckalloc(sizeof(DynamicCOClientData));
+	cd->id = id;
+	cd->size = size;
+	cd->objOffset = objOffset;
+	cd->internalOffset = internalOffset;
+	cd->custom = custom;
+
+	/* The Tk custom option record */
+	co = (Tk_ObjCustomOption *) ckalloc(sizeof(Tk_ObjCustomOption));
+	co->name = (char *) optionName + 1;
+	co->setProc = DynamicCO_Set;
+	co->getProc = DynamicCO_Get;
+	co->restoreProc = DynamicCO_Restore;
+	co->freeProc = DynamicCO_Free;
+	co->clientData = (ClientData) cd;
+
+	/* Update the option table */
+	optionTable[i].clientData = (ClientData) co;
+#ifdef DEBUG_DYNAMIC
+dbwin("DynamicCO_Init id=%d size=%d objOffset=%d internalOffset=%d custom->name=%s",
+    id, size, objOffset, internalOffset, custom->name);
+#endif
+	return TCL_OK;
+    }
     return TCL_ERROR;
 }
 
-Tree_GetOptionValue(
+static int
+StringCO_Set(
+    ClientData clientData,
+    Tcl_Interp *interp,
+    Tk_Window tkwin,
+    Tcl_Obj **valuePtr,
+    char *recordPtr,
+    int internalOffset,
+    char *saveInternalPtr,
+    int flags
     )
 {
+    int objEmpty;
+    char *internalPtr, *new, *value;
+    int length;
+
+    if (internalOffset >= 0)
+	internalPtr = (char *) (recordPtr + internalOffset);
+    else
+	internalPtr = NULL;
+
+    objEmpty = ObjectIsEmpty((*valuePtr));
+
+    if ((flags & TK_OPTION_NULL_OK) && objEmpty)
+	(*valuePtr) = NULL;
+
+    if (internalPtr != NULL) {
+	if (*valuePtr != NULL) {
+	    value = Tcl_GetStringFromObj(*valuePtr, &length);
+	    new = ckalloc((unsigned) (length + 1));
+	    strcpy(new, value);
+	} else {
+	    new = NULL;
+	}
+	*((char **) saveInternalPtr) = *((char **) internalPtr);
+	*((char **) internalPtr) = new;
+    }
+
+    return TCL_OK;
 }
 
-Tree_GetOptionInfo(
+static Tcl_Obj *
+StringCO_Get(
+    ClientData clientData,
+    Tk_Window tkwin,
+    char *recordPtr,
+    int internalOffset
     )
 {
+    char **internalPtr = (char **) (recordPtr + internalOffset);
+
+    return Tcl_NewStringObj(*internalPtr, -1);
 }
 
-Tree_InitOptions(
+static void
+StringCO_Restore(
+    ClientData clientData,
+    Tk_Window tkwin,
+    char *internalPtr,
+    char *saveInternalPtr
     )
 {
+    *(char **) internalPtr = *(char **) saveInternalPtr;
 }
 
-Tree_FreeConfigOptions(
+static void
+StringCO_Free(
+    ClientData clientData,
+    Tk_Window tkwin,
+    char *internalPtr
     )
 {
+    if (*((char **) internalPtr) != NULL) {
+	ckfree(*((char **) internalPtr));
+	*((char **) internalPtr) = NULL;
+    }
 }
+
+Tk_ObjCustomOption stringCO =
+{
+    "string",
+    StringCO_Set,
+    StringCO_Get,
+    StringCO_Restore,
+    StringCO_Free,
+    (ClientData) NULL
+};
 
 #endif /* DYNAMIC_OPTION */
