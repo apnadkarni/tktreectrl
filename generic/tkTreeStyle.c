@@ -2436,9 +2436,7 @@ Element_FreeResources(
     Tk_FreeConfigOptions((char *) elem,
 	typePtr->optionTable,
 	tree->tkwin);
-#ifdef DYNAMIC_OPTION
     DynamicOption_Free(elem->options);
-#endif
 #ifdef ALLOC_HAX
     AllocHax_Free(tree->allocData, typePtr->name, (char *) elem, typePtr->size);
 #else
@@ -2862,9 +2860,7 @@ Element_CreateAndConfig(
 	Tk_FreeConfigOptions((char *) elem,
 	    elem->typePtr->optionTable,
 	    tree->tkwin);
-#ifdef DYNAMIC_OPTION
 	DynamicOption_Free(elem->options);
-#endif
 #ifdef ALLOC_HAX
 	AllocHax_Free(tree->allocData, type->name, (char *) elem, type->size);
 #else

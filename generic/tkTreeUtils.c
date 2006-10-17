@@ -3103,7 +3103,7 @@ AllocHax_Alloc(
 	result = elem;
     } else {
 	AllocElem *block;
-	unsigned elemSize = TCL_ALIGN(sizeof(AllocElem) + size);
+	unsigned elemSize = TCL_ALIGN(BODY_OFFSET + size);
 	freeList->blockCount += 1;
 	freeList->blocks = (AllocElem **) ckrealloc((char *) freeList->blocks,
 	    sizeof(AllocElem *) * freeList->blockCount);
@@ -3860,6 +3860,26 @@ TagInfo_ToObj(
     return listObj;
 }
 
+/*
+ *----------------------------------------------------------------------
+ *
+ * TagInfoCO_Set --
+ * TagInfoCO_Get --
+ * TagInfoCO_Restore --
+ * TagInfoCO_Free --
+ *
+ *	These procedures implement a TK_OPTION_CUSTOM where the custom
+ *	option is a TagInfo record.
+ *
+ * Results:
+ *	None.
+ *
+ * Side effects:
+ *	None.
+ *
+ *----------------------------------------------------------------------
+ */
+
 static int
 TagInfoCO_Set(
     ClientData clientData,
@@ -4573,7 +4593,7 @@ OptionHax_Remember(
     }
 #endif
     tree->optionHax[tree->optionHaxCnt++] = ptr;
-dbwin("OptionHax_Remember %p\n", ptr);
+/*dbwin("OptionHax_Remember %p\n", ptr);*/
 }
 
 int
@@ -4587,7 +4607,7 @@ OptionHax_Forget(
     for (i = 0; tree->optionHaxCnt; i++) {
 	if (ptr == tree->optionHax[i]) {
 	    tree->optionHax[i] = tree->optionHax[--tree->optionHaxCnt];
-dbwin("OptionHax_Forget %p\n", ptr);
+/*dbwin("OptionHax_Forget %p\n", ptr);*/
 	    return 1;
 	}
     }
@@ -4825,8 +4845,6 @@ PerStateCO_Init(
     return TCL_ERROR;
 }
 
-#ifdef DYNAMIC_OPTION
-
 #define DEBUG_DYNAMICxxx
 
 /*
@@ -4928,9 +4946,8 @@ DynamicOption_AllocIfNeeded(
 #ifdef DEBUG_DYNAMIC
 dbwin("DynamicOption_AllocIfNeeded allocated id=%d\n", id);
 #endif
-    opt = (DynamicOption *) ckalloc(sizeof(DynamicOption));
+    opt = (DynamicOption *) ckalloc(Tk_Offset(DynamicOption, data) + size);
     opt->id = id;
-    opt->data = ckalloc(size);
     memset(opt->data, '\0', size);
     if (init != NULL)
 	(*init)(opt->data);
@@ -4965,7 +4982,6 @@ DynamicOption_Free(
 
     while (opt != NULL) {
 	DynamicOption *next = opt->next;
-	ckfree((char *) opt->data);
 	ckfree((char *) opt);
 	opt = next;
     }
@@ -5450,4 +5466,3 @@ Tk_ObjCustomOption pixelsCO =
     (ClientData) NULL
 };
 
-#endif /* DYNAMIC_OPTION */

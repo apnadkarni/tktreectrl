@@ -11,30 +11,6 @@
 #include "tkTreeCtrl.h"
 #include "tkTreeElem.h"
 
-#ifdef DYNAMIC_OPTION
-
-int
-DO_Pixels(
-    TreeCtrl *tree,
-    Element *elem,
-    int id
-    )
-{
-    DynamicPixels *pixels;
-
-    pixels = (DynamicPixels *) DynamicOption_FindData(elem->options, id);
-    if (pixels != NULL && pixels->objPtr != NULL)
-	return pixels->pixels;
-    if (elem->master != NULL) {
-	pixels = (DynamicPixels *) DynamicOption_FindData(
-	    elem->master->options, id);
-	if (pixels != NULL && pixels->objPtr != NULL) {
-	    return pixels->pixels;
-	}
-    }
-    return -1;
-}
-
 /*
  *----------------------------------------------------------------------
  *
@@ -45,7 +21,10 @@ DO_Pixels(
  *	Returns the value of a per-state option for an element.
  *
  * Results:
- *	None.
+ *	If the element has the dynamic option allocated, then the
+ *	per-state info is checked for a match. If an exact match for
+ *	the given state is not found, and if the element is an instance
+ *	(not a master), then the master element is checked.
  *
  * Side effects:
  *	None.
@@ -182,8 +161,6 @@ DO_ObjectForState(
     }
     return result;
 }
-
-#endif /* DYNAMIC_OPTION */
 
 /* BEGIN custom "boolean" option */
 
@@ -2212,56 +2189,17 @@ typedef struct ElementText ElementText;
 struct ElementText
 {
     Element header;
-#ifndef DYNAMIC_OPTION
-    PerStateInfo draw;			/* -draw */
-#endif
     Tcl_Obj *textObj;			/* -text */
     char *text;
     int textLen;
-#ifndef DYNAMIC_OPTION
-    Tcl_Obj *dataObj;
-#define TDT_NULL -1
-#define TDT_DOUBLE 0
-#define TDT_INTEGER 1
-#define TDT_LONG 2
-#define TDT_STRING 3
-#define TDT_TIME 4
-#define TEXT_CONF_DATA 0x0001000	/* for Tk_SetOptions() */
-    int dataType;			/* -datatype */
-    Tcl_Obj *formatObj;			/* -format */
-#endif
     int stringRepInvalid;
-#ifndef DYNAMIC_OPTION
-    PerStateInfo font;			/* -font */
-    PerStateInfo fill;			/* -fill */
-#endif
     struct PerStateGC *gc;
-#define TK_JUSTIFY_NULL -1
-#ifndef DYNAMIC_OPTION
-    int justify;			/* -justify */
-    int lines;				/* -lines */
-    Tcl_Obj *widthObj;			/* -width */
-    int width;				/* -width */
-#define TEXT_WRAP_NULL -1
-#define TEXT_WRAP_CHAR 0
-#define TEXT_WRAP_NONE 1
-#define TEXT_WRAP_WORD 2
-    int wrap;				/* -wrap */
-#endif
     TextLayout layout;
     int layoutWidth;
     int neededWidth;
     int totalWidth;
-#define TEXTVAR
-#ifdef TEXTVAR
-#ifndef DYNAMIC_OPTION
-    Tcl_Obj *varNameObj;		/* -textvariable */
-    TreeCtrl *tree;			/* needed to redisplay */
-    TreeItem item;			/* needed to redisplay */
-    TreeItemColumn column;		/* needed to redisplay */
-#endif /* DYNAMIC_OPTION */
-#endif
 };
+#define TEXTVAR
 
 /* for Tk_SetOptions() */
 #define TEXT_CONF_FONT 0x0001
@@ -2272,8 +2210,7 @@ struct ElementText
 #define TEXT_CONF_TEXTVAR 0x0010
 #endif
 #define TEXT_CONF_DRAW 0x0020
-
-#ifdef DYNAMIC_OPTION
+#define TEXT_CONF_DATA 0x0001000
 
 typedef struct ElementTextData {
     Tcl_Obj *dataObj;			/* -data */
@@ -2283,12 +2220,12 @@ typedef struct ElementTextData {
 #define TDT_LONG 2
 #define TDT_STRING 3
 #define TDT_TIME 4
-#define TEXT_CONF_DATA 0x0001000	/* for Tk_SetOptions() */
     int dataType;			/* -datatype */
     Tcl_Obj *formatObj;			/* -format */
 } ElementTextData;
 
 typedef struct ElementTextLayout {
+#define TK_JUSTIFY_NULL -1
     int justify;			/* -justify */
     int lines;				/* -lines */
     Tcl_Obj *widthObj;			/* -width */
@@ -2333,51 +2270,27 @@ ElementTextLayoutInit(
     etl->wrap = TEXT_WRAP_NULL;
 }
 
-#endif /* DYNAMIC_OPTION */
-
 static CONST char *textDataTypeST[] = { "double", "integer", "long", "string",
 					"time", (char *) NULL };
 static CONST char *textJustifyST[] = { "left", "right", "center", (char *) NULL };
 static CONST char *textWrapST[] = { "char", "none", "word", (char *) NULL };
 
 static Tk_OptionSpec textOptionSpecs[] = {
-#ifdef DYNAMIC_OPTION
     {TK_OPTION_CUSTOM, "-data", (char *) NULL, (char *) NULL,
      (char *) NULL, -1, Tk_Offset(Element, options),
      TK_OPTION_NULL_OK, (ClientData) NULL, TEXT_CONF_DATA},
     {TK_OPTION_CUSTOM, "-datatype", (char *) NULL, (char *) NULL,
      (char *) NULL, -1, Tk_Offset(Element, options),
      TK_OPTION_NULL_OK, (ClientData) NULL, TEXT_CONF_DATA},
-#else
-    {TK_OPTION_STRING, "-data", (char *) NULL, (char *) NULL,
-     (char *) NULL, Tk_Offset(ElementText, dataObj), -1,
-     TK_OPTION_NULL_OK, (ClientData) NULL, TEXT_CONF_DATA},
-    {TK_OPTION_CUSTOM, "-datatype", (char *) NULL, (char *) NULL,
-     (char *) NULL, -1, Tk_Offset(ElementText, dataType),
-     TK_OPTION_NULL_OK, (ClientData) NULL, TEXT_CONF_DATA},
-#endif
     {TK_OPTION_CUSTOM, "-draw", (char *) NULL, (char *) NULL,
-#ifdef DYNAMIC_OPTION
      (char *) NULL, -1, Tk_Offset(Element, options),
-#else
-     (char *) NULL, -1, Tk_Offset(ElementText, draw),
-#endif
      TK_OPTION_NULL_OK, (ClientData) NULL, TEXT_CONF_DRAW},
     {TK_OPTION_CUSTOM, "-fill", (char *) NULL, (char *) NULL,
-#ifdef DYNAMIC_OPTION
      (char *) NULL, -1, Tk_Offset(Element, options),
-#else
-     (char *) NULL, -1, Tk_Offset(ElementText, fill),
-#endif
      TK_OPTION_NULL_OK, (ClientData) NULL,  TEXT_CONF_FILL},
     {TK_OPTION_CUSTOM, "-font", (char *) NULL, (char *) NULL,
-#ifdef DYNAMIC_OPTION
      (char *) NULL, -1, Tk_Offset(Element, options),
-#else
-     (char *) NULL, -1, Tk_Offset(ElementText, font),
-#endif
      TK_OPTION_NULL_OK, (ClientData) NULL, TEXT_CONF_FONT},
-#ifdef DYNAMIC_OPTION
     {TK_OPTION_CUSTOM, "-format", (char *) NULL, (char *) NULL,
      (char *) NULL, -1, Tk_Offset(Element, options),
      TK_OPTION_NULL_OK, (ClientData) NULL, TEXT_CONF_DATA},
@@ -2387,46 +2300,21 @@ static Tk_OptionSpec textOptionSpecs[] = {
     {TK_OPTION_CUSTOM, "-lines", (char *) NULL, (char *) NULL,
      (char *) NULL, -1, Tk_Offset(Element, options),
      TK_OPTION_NULL_OK, (ClientData) NULL, TEXT_CONF_LAYOUT},
-#else
-    {TK_OPTION_STRING, "-format", (char *) NULL, (char *) NULL,
-     (char *) NULL, Tk_Offset(ElementText, formatObj), -1,
-     TK_OPTION_NULL_OK, (ClientData) NULL, TEXT_CONF_DATA},
-    {TK_OPTION_CUSTOM, "-justify", (char *) NULL, (char *) NULL,
-     (char *) NULL, -1, Tk_Offset(ElementText, justify),
-     TK_OPTION_NULL_OK, (ClientData) NULL, TEXT_CONF_LAYOUT},
-    {TK_OPTION_CUSTOM, "-lines", (char *) NULL, (char *) NULL,
-     (char *) NULL, -1, Tk_Offset(ElementText, lines),
-     TK_OPTION_NULL_OK, (ClientData) NULL, TEXT_CONF_LAYOUT},
-#endif
     {TK_OPTION_STRING, "-text", (char *) NULL, (char *) NULL,
      (char *) NULL, Tk_Offset(ElementText, textObj),
      Tk_Offset(ElementText, text),
      TK_OPTION_NULL_OK, (ClientData) NULL, TEXT_CONF_TEXTOBJ},
 #ifdef TEXTVAR
     {TK_OPTION_CUSTOM, "-textvariable", (char *) NULL, (char *) NULL,
-#ifdef DYNAMIC_OPTION
      (char *) NULL, -1, Tk_Offset(Element, options),
-#else
-     (char *) NULL, Tk_Offset(ElementText, varNameObj), -1,
-#endif
      TK_OPTION_NULL_OK, (ClientData) NULL, TEXT_CONF_TEXTVAR},
 #endif
-#ifdef DYNAMIC_OPTION
     {TK_OPTION_CUSTOM, "-width", (char *) NULL, (char *) NULL,
      (char *) NULL, -1, Tk_Offset(Element, options),
      TK_OPTION_NULL_OK, (ClientData) NULL, TEXT_CONF_LAYOUT},
     {TK_OPTION_CUSTOM, "-wrap", (char *) NULL, (char *) NULL,
      (char *) NULL, -1, Tk_Offset(Element, options),
      TK_OPTION_NULL_OK, (ClientData) NULL, TEXT_CONF_LAYOUT},
-#else
-    {TK_OPTION_PIXELS, "-width", (char *) NULL, (char *) NULL,
-     (char *) NULL, Tk_Offset(ElementText, widthObj),
-     Tk_Offset(ElementText, width),
-     TK_OPTION_NULL_OK, (ClientData) NULL, TEXT_CONF_LAYOUT},
-    {TK_OPTION_CUSTOM, "-wrap", (char *) NULL, (char *) NULL,
-     (char *) NULL, -1, Tk_Offset(ElementText, wrap),
-     TK_OPTION_NULL_OK, (ClientData) NULL, TEXT_CONF_LAYOUT},
-#endif
     {TK_OPTION_END, (char *) NULL, (char *) NULL, (char *) NULL,
      (char *) NULL, 0, -1, 0, 0, 0}
 };
@@ -2471,20 +2359,13 @@ static void TextUpdateStringRep(ElementArgs *args)
     ElementText *elemX = (ElementText *) elem;
     ElementText *masterX = (ElementText *) elem->master;
     Tcl_Obj *dataObj, *formatObj, *textObj;
-#ifdef DYNAMIC_OPTION
     ElementTextData *etd, *etdM = NULL;
 #ifdef TEXTVAR
     ElementTextVar *etv = (ElementTextVar *) DynamicOption_FindData(elem->options, 1001);
     Tcl_Obj *varNameObj = etv ? etv->varNameObj : NULL;
 #endif
-#else
-#ifdef TEXTVAR
-    Tcl_Obj *varNameObj = elemX->varNameObj;
-#endif
-#endif
     int dataType;
 
-#ifdef DYNAMIC_OPTION
     etd = (ElementTextData *) DynamicOption_FindData(elem->options, 1006);
     if (masterX != NULL)
 	etdM = (ElementTextData *) DynamicOption_FindData(elem->master->options, 1006);
@@ -2500,19 +2381,7 @@ static void TextUpdateStringRep(ElementArgs *args)
     formatObj = etd ? etd->formatObj : NULL;
     if ((formatObj == NULL) && (etdM != NULL))
 	formatObj = etdM->formatObj; 
-#else
-    dataObj = elemX->dataObj;
-    if ((dataObj == NULL) && (masterX != NULL))
-	dataObj = masterX->dataObj; 
 
-    dataType = elemX->dataType;
-    if ((dataType == TDT_NULL) && (masterX != NULL))
-	dataType = masterX->dataType; 
-
-    formatObj = elemX->formatObj;
-    if ((formatObj == NULL) && (masterX != NULL))
-	formatObj = masterX->formatObj; 
-#endif
     textObj = elemX->textObj;
     if ((textObj == NULL) && (masterX != NULL))
 	textObj = masterX->textObj; 
@@ -2544,15 +2413,9 @@ static void TextUpdateStringRep(ElementArgs *args)
     /* Only create a string rep if elemX (not masterX) has dataObj,
        dataType or formatObj. */
     else if ((dataObj != NULL) && (dataType != TDT_NULL) &&
-#ifdef DYNAMIC_OPTION
 	    ((etd != NULL) && ((etd->dataObj != NULL) ||
 		    (etd->dataType != TDT_NULL) ||
 		    (etd->formatObj != NULL)))) {
-#else
-	    ((elemX->dataObj != NULL) ||
-		    (elemX->dataType != TDT_NULL) ||
-		    (elemX->formatObj != NULL))) {
-#endif
 	int i, objc = 0;
 	Tcl_Obj *objv[5], *resultObj = NULL;
 	static Tcl_Obj *staticObj[3] = { NULL };
@@ -2668,7 +2531,6 @@ static void TextUpdateLayout(char *func, ElementArgs *args, int fixedWidth, int 
     ElementText *elemX = (ElementText *) elem;
     ElementText *masterX = (ElementText *) elem->master;
     int state = args->state;
-    int match, match2;
     Tk_Font tkfont;
     char *text = NULL;
     int textLen = 0;
@@ -2679,9 +2541,7 @@ static void TextUpdateLayout(char *func, ElementArgs *args, int fixedWidth, int 
     int flags = 0;
     int i, multiLine = FALSE;
     int textWidth;
-#ifdef DYNAMIC_OPTION
     ElementTextLayout *etl, *etlM = NULL;
-#endif
 
     if (tree->debug.enable && tree->debug.textLayout)
 	dbwin("TextUpdateLayout: %s %p (%s) %s\n",
@@ -2704,7 +2564,6 @@ static void TextUpdateLayout(char *func, ElementArgs *args, int fixedWidth, int 
     if ((text == NULL) || (textLen == 0))
 	return;
 
-#ifdef DYNAMIC_OPTION
     etl = (ElementTextLayout *) DynamicOption_FindData(elem->options, 1005);
     if (masterX != NULL)
 	etlM = (ElementTextLayout *) DynamicOption_FindData(elem->master->options, 1005);
@@ -2713,41 +2572,23 @@ static void TextUpdateLayout(char *func, ElementArgs *args, int fixedWidth, int 
 	lines = etl->lines;
     else if (etlM != NULL && etlM->lines != -1)
 	lines = etlM->lines;
-#else
-    if (elemX->lines != -1)
-	lines = elemX->lines;
-    else if ((masterX != NULL) && (masterX->lines != -1))
-	lines = masterX->lines;
-#endif
     if (lines == 1)
 	return;
 
-#ifdef DYNAMIC_OPTION
     tkfont = DO_FontForState(tree, elem, 1004, state);
-#else
-    FONT_FOR_STATE(tkfont, font, state)
-#endif
     if (tkfont == NULL)
 	tkfont = tree->tkfont;
 
-#ifdef DYNAMIC_OPTION
     if (etl != NULL && etl->wrap != TEXT_WRAP_NULL)
 	wrap = etl->wrap;
     else if (etlM != NULL && etlM->wrap != TEXT_WRAP_NULL)
 	wrap = etlM->wrap;
-#else
-    if (elemX->wrap != TEXT_WRAP_NULL)
-	wrap = elemX->wrap;
-    else if ((masterX != NULL) && (masterX->wrap != TEXT_WRAP_NULL))
-	wrap = masterX->wrap;
-#endif
 
     if (wrap != TEXT_WRAP_NONE) {
 	if (fixedWidth >= 0)
 	    width = fixedWidth;
 	else if (maxWidth >= 0)
 	    width = maxWidth;
-#ifdef DYNAMIC_OPTION
 	if (etl != NULL && etl->widthObj != NULL) {
 	    if (!width || (etl->width < width))
 		width = etl->width;
@@ -2755,15 +2596,6 @@ static void TextUpdateLayout(char *func, ElementArgs *args, int fixedWidth, int 
 	    if (!width || (etlM->width < width))
 		width = etlM->width;
 	}
-#else
-	if (elemX->widthObj != NULL) {
-	    if (!width || (elemX->width < width))
-		width = elemX->width;
-	} else if ((masterX != NULL) && (masterX->widthObj != NULL)) {
-	    if (!width || (masterX->width < width))
-		width = masterX->width;
-	}
-#endif
     }
 
     for (i = 0; i < textLen; i++) {
@@ -2784,17 +2616,10 @@ if (tree->debug.enable && tree->debug.textLayout) dbwin("    textWidth %d\n", te
 	    return;
     }
 
-#ifdef DYNAMIC_OPTION
     if (etl != NULL && etl->justify != TK_JUSTIFY_NULL)
 	justify = etl->justify;
     else if (etlM != NULL && etlM->justify != TK_JUSTIFY_NULL)
 	justify = etlM->justify;
-#else
-    if (elemX->justify != TK_JUSTIFY_NULL)
-	justify = elemX->justify;
-    else if ((masterX != NULL) && (masterX->justify != TK_JUSTIFY_NULL))
-	justify = masterX->justify;
-#endif
 
     if (wrap == TEXT_WRAP_WORD)
 	flags |= TK_WHOLE_WORDS;
@@ -2811,16 +2636,11 @@ static Tcl_VarTraceProc VarTraceProc_Text;
 
 static void TextTraceSet(Tcl_Interp *interp, ElementText *elemX)
 {
-#ifdef DYNAMIC_OPTION
     ElementTextVar *etv = (ElementTextVar *) DynamicOption_FindData(elemX->header.options, 1001);
     Tcl_Obj *varNameObj = etv ? etv->varNameObj : NULL;
 
     if (varNameObj != NULL) {
 	Tcl_TraceVar2(interp, Tcl_GetString(varNameObj),
-#else
-    if (elemX->varNameObj != NULL) {
-	Tcl_TraceVar2(interp, Tcl_GetString(elemX->varNameObj),
-#endif
 	    NULL,
 	    TCL_GLOBAL_ONLY | TCL_TRACE_WRITES | TCL_TRACE_UNSETS,
 	    VarTraceProc_Text, (ClientData) elemX);
@@ -2829,16 +2649,11 @@ static void TextTraceSet(Tcl_Interp *interp, ElementText *elemX)
 
 static void TextTraceUnset(Tcl_Interp *interp, ElementText *elemX)
 {
-#ifdef DYNAMIC_OPTION
     ElementTextVar *etv = (ElementTextVar *) DynamicOption_FindData(elemX->header.options, 1001);
     Tcl_Obj *varNameObj = etv ? etv->varNameObj : NULL;
 
     if (varNameObj != NULL) {
 	Tcl_UntraceVar2(interp, Tcl_GetString(varNameObj),
-#else
-    if (elemX->varNameObj != NULL) {
-	Tcl_UntraceVar2(interp, Tcl_GetString(elemX->varNameObj),
-#endif
 	    NULL,
 	    TCL_GLOBAL_ONLY | TCL_TRACE_WRITES | TCL_TRACE_UNSETS,
 	    VarTraceProc_Text, (ClientData) elemX);
@@ -2850,12 +2665,8 @@ static char *VarTraceProc_Text(ClientData clientData, Tcl_Interp *interp,
 {
     ElementText *elemX = (ElementText *) clientData;
     ElementText *masterX = (ElementText *) elemX->header.master;
-#ifdef DYNAMIC_OPTION
     ElementTextVar *etv = (ElementTextVar *) DynamicOption_FindData(elemX->header.options, 1001);
     Tcl_Obj *varNameObj = etv ? etv->varNameObj : NULL;
-#else
-    Tcl_Obj *varNameObj = elemX->varNameObj;
-#endif
     Tcl_Obj *valueObj;
 
     /*
@@ -2886,13 +2697,8 @@ static char *VarTraceProc_Text(ClientData clientData, Tcl_Interp *interp,
     }
 
     elemX->stringRepInvalid = TRUE;
-#ifdef DYNAMIC_OPTION
     Tree_ElementChangedItself(etv->tree, etv->item, etv->column,
 	(Element *) elemX, CS_LAYOUT | CS_DISPLAY);
-#else
-    Tree_ElementChangedItself(elemX->tree, elemX->item, elemX->column,
-	(Element *) elemX, CS_LAYOUT | CS_DISPLAY);
-#endif
     return (char *) NULL;
 }
 #endif /* TEXTVAR */
@@ -2926,10 +2732,8 @@ static int ConfigProcText(ElementArgs *args)
     int error;
     Tcl_Obj *errorResult = NULL;
 #ifdef TEXTVAR
-#ifdef DYNAMIC_OPTION
     ElementTextVar *etv;
     Tcl_Obj *varNameObj;
-#endif
 #endif
 
 #ifdef TEXTVAR
@@ -2947,7 +2751,6 @@ static int ConfigProcText(ElementArgs *args)
 	    }
 
 #ifdef TEXTVAR
-#ifdef DYNAMIC_OPTION
 	    etv = (ElementTextVar *) DynamicOption_FindData(elem->options, 1001);
 	    if (etv != NULL) {
 		etv->tree = tree;
@@ -2959,11 +2762,6 @@ static int ConfigProcText(ElementArgs *args)
 	    if (varNameObj != NULL) {
 		Tcl_Obj *valueObj;
 		valueObj = Tcl_ObjGetVar2(interp, varNameObj,
-#else
-	    if (elemX->varNameObj != NULL) {
-		Tcl_Obj *valueObj;
-		valueObj = Tcl_ObjGetVar2(interp, elemX->varNameObj,
-#endif
 			NULL, TCL_GLOBAL_ONLY);
 		if (valueObj == NULL) {
 		    ElementText *masterX = (ElementText *) elem->master;
@@ -2982,11 +2780,7 @@ static int ConfigProcText(ElementArgs *args)
 		    Tcl_IncrRefCount(valueObj);
 		    /* This validates the variable name. We get an error
 		     * if it is the name of an array */
-#ifdef DYNAMIC_OPTION
 		    if (Tcl_ObjSetVar2(interp, varNameObj, NULL,
-#else
-		    if (Tcl_ObjSetVar2(interp, elemX->varNameObj, NULL,
-#endif
 			    valueObj, TCL_GLOBAL_ONLY | TCL_LEAVE_ERR_MSG)
 			    == NULL) {
 			Tcl_DecrRefCount(valueObj);
@@ -3021,19 +2815,8 @@ static int ConfigProcText(ElementArgs *args)
 
 static int CreateProcText(ElementArgs *args)
 {
-    ElementText *elemX = (ElementText *) args->elem;
+/*    ElementText *elemX = (ElementText *) args->elem;*/
 
-#ifndef DYNAMIC_OPTION
-    elemX->dataType = TDT_NULL;
-    elemX->justify = TK_JUSTIFY_NULL;
-    elemX->lines = -1;
-    elemX->wrap = TEXT_WRAP_NULL;
-#ifdef TEXTVAR
-    elemX->tree = args->tree;
-    elemX->item = args->create.item;
-    elemX->column = args->create.column;
-#endif
-#endif
     return TCL_OK;
 }
 
@@ -3043,7 +2826,6 @@ static void TextRedoLayoutIfNeeded(char *func, ElementArgs *args, int fixedWidth
     ElementText *masterX = (ElementText *) args->elem->master;
     int doLayout = 0;
     int wrap = TEXT_WRAP_WORD;
-#ifdef DYNAMIC_OPTION
     ElementTextLayout *etl, *etlM = NULL;
 
     etl = (ElementTextLayout *) DynamicOption_FindData(args->elem->options, 1005);
@@ -3055,13 +2837,6 @@ static void TextRedoLayoutIfNeeded(char *func, ElementArgs *args, int fixedWidth
 	wrap = etl->wrap;
     else if ((etlM != NULL) && (etlM->wrap != TEXT_WRAP_NULL))
 	wrap = etlM->wrap;
-#else
-    /* If text wrapping is disabled, the layout doesn't change */
-    if (elemX->wrap != TEXT_WRAP_NULL)
-	wrap = elemX->wrap;
-    else if ((masterX != NULL) && (masterX->wrap != TEXT_WRAP_NULL))
-	wrap = masterX->wrap;
-#endif
     if (wrap == TEXT_WRAP_NONE)
 	return;
 
@@ -3108,7 +2883,6 @@ static void DisplayProcText(ElementArgs *args)
     int state = args->state;
     int x = args->display.x, y = args->display.y;
     int width, height;
-    int match, match2;
     int draw;
     XColor *color;
     char *text = elemX->text;
@@ -3121,11 +2895,7 @@ static void DisplayProcText(ElementArgs *args)
     char *ellipsis = "...";
     TkRegion clipRgn = NULL;
 
-#ifdef DYNAMIC_OPTION
     draw = DO_BooleanForState(tree, elem, 1002, state);
-#else
-    BOOLEAN_FOR_STATE(draw, draw, state)
-#endif
     if (!draw)
 	return;
 
@@ -3137,14 +2907,8 @@ static void DisplayProcText(ElementArgs *args)
     if (text == NULL) /* always false (or layout sets height/width to zero) */
 	return;
 
-#ifdef DYNAMIC_OPTION
     color = DO_ColorForState(tree, elem, 1003, state);
     tkfont = DO_FontForState(tree, elem, 1004, state);
-#else
-    COLOR_FOR_STATE(color, fill, state)
-
-    FONT_FOR_STATE(tkfont, font, state)
-#endif
 
     /* FIXME: -font {"" {state...}}*/
     if ((color != NULL) || (tkfont != NULL)) {
@@ -3261,19 +3025,16 @@ static void NeededProcText(ElementArgs *args)
     ElementText *elemX = (ElementText *) elem;
     ElementText *masterX = (ElementText *) elem->master;
     int state = args->state;
-    int match, match2;
     char *text = NULL;
     int textLen = 0;
     Tk_Font tkfont;
     Tk_FontMetrics fm;
     int width = 0, height = 0;
-#ifdef DYNAMIC_OPTION
     ElementTextLayout *etl, *etlM = NULL;
 
     etl = (ElementTextLayout *) DynamicOption_FindData(args->elem->options, 1005);
     if (masterX != NULL)
 	etlM = (ElementTextLayout *) DynamicOption_FindData(args->elem->master->options, 1005);
-#endif
 
     if ((masterX != NULL) && masterX->stringRepInvalid) {
 	args->elem = (Element *) masterX;
@@ -3317,26 +3078,15 @@ static void NeededProcText(ElementArgs *args)
 	if (text != NULL) {
 	    int maxWidth = -1;
 
-#ifdef DYNAMIC_OPTION
 	    tkfont = DO_FontForState(tree, elem, 1004, state);
-#else
-	    FONT_FOR_STATE(tkfont, font, state)
-#endif
 	    if (tkfont == NULL)
 		tkfont = tree->tkfont;
 
 	    width = Tk_TextWidth(tkfont, text, textLen);
-#ifdef DYNAMIC_OPTION
 	    if (etl != NULL && etl->widthObj != NULL)
 		maxWidth = etl->width;
 	    else if ((etlM != NULL) && (etlM->widthObj != NULL))
 		maxWidth = etlM->width;
-#else
-	    if (elemX->widthObj != NULL)
-		maxWidth = elemX->width;
-	    else if ((masterX != NULL) && (masterX->widthObj != NULL))
-		maxWidth = masterX->width;
-#endif
 	    if ((maxWidth >= 0) && (maxWidth < width))
 		width = maxWidth;
 
@@ -3356,7 +3106,6 @@ static void HeightProcText(ElementArgs *args)
     ElementText *elemX = (ElementText *) elem;
     ElementText *masterX = (ElementText *) elem->master;
     int state = args->state;
-    int match, match2;
     int height = 0;
     char *text = NULL;
     Tk_Font tkfont;
@@ -3373,11 +3122,7 @@ static void HeightProcText(ElementArgs *args)
 	    text = masterX->text;
 	}
 	if (text != NULL) {
-#ifdef DYNAMIC_OPTION
 	    tkfont = DO_FontForState(tree, elem, 1004, state);
-#else
-	    FONT_FOR_STATE(tkfont, font, state)
-#endif
 	    if (tkfont == NULL)
 		tkfont = tree->tkfont;
 	    Tk_GetFontMetrics(tkfont, &fm);
@@ -3392,17 +3137,11 @@ int Element_GetSortData(TreeCtrl *tree, Element *elem, int type, long *lv, doubl
 {
     ElementText *elemX = (ElementText *) elem;
     ElementText *masterX = (ElementText *) elem->master;
-#ifdef DYNAMIC_OPTION
     ElementTextData *etd, *etdM = NULL;
     Tcl_Obj *dataObj = NULL;
     int dataType = TDT_NULL;
-#else
-    Tcl_Obj *dataObj = elemX->dataObj;
-    int dataType = elemX->dataType;
-#endif
     Tcl_Obj *obj;
 
-#ifdef DYNAMIC_OPTION
     etd = (ElementTextData *) DynamicOption_FindData(elem->options, 1006);
     if (etd != NULL) {
 	dataObj = etd->dataObj;
@@ -3410,13 +3149,10 @@ int Element_GetSortData(TreeCtrl *tree, Element *elem, int type, long *lv, doubl
     }
     if (dataType == TDT_NULL && masterX != NULL) {
 	etdM = (ElementTextData *) DynamicOption_FindData(elem->master->options, 1006);
+	/* FIXME: get dataObj from master? */
 	if (etdM != NULL)
 	    dataType = etdM->dataType;
     }
-#else
-    if (dataType == TDT_NULL && masterX != NULL)
-	dataType = masterX->dataType;
-#endif
 
     switch (type) {
 	case SORT_ASCII:
@@ -3463,39 +3199,24 @@ static int StateProcText(ElementArgs *args)
 {
     TreeCtrl *tree = args->tree;
     Element *elem = args->elem;
-    ElementText *elemX = (ElementText *) elem;
-    ElementText *masterX = (ElementText *) elem->master;
-    int match, match2;
+/*    ElementText *elemX = (ElementText *) elem;
+    ElementText *masterX = (ElementText *) elem->master;*/
     int draw1, draw2;
     XColor *f1, *f2;
     Tk_Font tkfont1, tkfont2;
     int mask = 0;
 
-#ifdef DYNAMIC_OPTION
     draw1 = DO_BooleanForState(tree, elem, 1002, args->states.state1);
-    f1 = DO_ColorForState(tree, elem, 1003, args->states.state1);
-    tkfont1 = DO_FontForState(tree, elem, 1004, args->states.state1);
-#else
-    BOOLEAN_FOR_STATE(draw1, draw, args->states.state1)
     if (draw1 == -1)
 	draw1 = 1;
-    COLOR_FOR_STATE(f1, fill, args->states.state1)
-    FONT_FOR_STATE(tkfont1, font, args->states.state1)
-#endif
+    f1 = DO_ColorForState(tree, elem, 1003, args->states.state1);
+    tkfont1 = DO_FontForState(tree, elem, 1004, args->states.state1);
 
-#ifdef DYNAMIC_OPTION
     draw2 = DO_BooleanForState(tree, elem, 1002, args->states.state2);
     if (draw2 == -1)
 	draw2 = 1;
     f2 = DO_ColorForState(tree, elem, 1003, args->states.state2);
     tkfont2 = DO_FontForState(tree, elem, 1004, args->states.state2);
-#else
-    BOOLEAN_FOR_STATE(draw2, draw, args->states.state2)
-    if (draw2 == -1)
-	draw2 = 1;
-    COLOR_FOR_STATE(f2, fill, args->states.state2)
-    FONT_FOR_STATE(tkfont2, font, args->states.state2)
-#endif
 
     if (tkfont1 != tkfont2)
 	mask |= CS_DISPLAY | CS_LAYOUT;
@@ -3509,36 +3230,29 @@ static int StateProcText(ElementArgs *args)
 static int UndefProcText(ElementArgs *args)
 {
     TreeCtrl *tree = args->tree;
-    ElementText *elemX = (ElementText *) args->elem;
+/*    ElementText *elemX = (ElementText *) args->elem;*/
     int modified = 0;
-#ifdef DYNAMIC_OPTION
     PerStateInfo *psi;
-#endif
 
-#ifdef DYNAMIC_OPTION
     if ((psi = (PerStateInfo *) DynamicOption_FindData(args->elem->options, 1002)) != NULL)
 	modified |= PerStateInfo_Undefine(tree, &pstBoolean, psi, args->state);
     if ((psi = (PerStateInfo *) DynamicOption_FindData(args->elem->options, 1003)) != NULL)
 	modified |= PerStateInfo_Undefine(tree, &pstColor, psi, args->state);
     if ((psi = (PerStateInfo *) DynamicOption_FindData(args->elem->options, 1004)) != NULL)
 	modified |= PerStateInfo_Undefine(tree, &pstFont, psi, args->state);
-#else
-    modified |= PerStateInfo_Undefine(tree, &pstBoolean, &elemX->draw, args->state);
-    modified |= PerStateInfo_Undefine(tree, &pstColor, &elemX->fill, args->state);
-    modified |= PerStateInfo_Undefine(tree, &pstFont, &elemX->font, args->state);
-#endif
+
     return modified;
 }
 
 static int ActualProcText(ElementArgs *args)
 {
     TreeCtrl *tree = args->tree;
-    ElementText *elemX = (ElementText *) args->elem;
-    ElementText *masterX = (ElementText *) args->elem->master;
+/*    ElementText *elemX = (ElementText *) args->elem;
+    ElementText *masterX = (ElementText *) args->elem->master;*/
     static CONST char *optionName[] = {
 	"-draw", "-fill", "-font",
 	(char *) NULL };
-    int index, match, matchM;
+    int index;
     Tcl_Obj *obj = NULL;
 
     if (Tcl_GetIndexFromObj(tree->interp, args->actual.obj, optionName,
@@ -3548,29 +3262,17 @@ static int ActualProcText(ElementArgs *args)
     switch (index) {
 	case 0:
 	{
-#ifdef DYNAMIC_OPTION
 	    obj = DO_ObjectForState(tree, &pstBoolean, args->elem, 1002, args->state);
-#else
-	    OBJECT_FOR_STATE(obj, pstBoolean, draw, args->state)
-#endif
 	    break;
 	}
 	case 1:
 	{
-#ifdef DYNAMIC_OPTION
 	    obj = DO_ObjectForState(tree, &pstColor, args->elem, 1003, args->state);
-#else
-	    OBJECT_FOR_STATE(obj, pstColor, fill, args->state)
-#endif
 	    break;
 	}
 	case 2:
 	{
-#ifdef DYNAMIC_OPTION
 	    obj = DO_ObjectForState(tree, &pstFont, args->elem, 1004, args->state);
-#else
-	    OBJECT_FOR_STATE(obj, pstFont, font, args->state)
-#endif
 	    break;
 	}
     }
@@ -4340,16 +4042,6 @@ int TreeElement_Init(Tcl_Interp *interp)
     PerStateCO_Init(elemTypeRect.optionSpecs, "-outline",
 	&pstColor, TreeStateFromObj);
 
-#ifdef DYNAMIC_OPTION
-#else
-    PerStateCO_Init(elemTypeText.optionSpecs, "-draw",
-	&pstBoolean, TreeStateFromObj);
-    PerStateCO_Init(elemTypeText.optionSpecs, "-fill",
-	&pstColor, TreeStateFromObj);
-    PerStateCO_Init(elemTypeText.optionSpecs, "-font",
-	&pstFont, TreeStateFromObj);
-#endif
-#ifdef DYNAMIC_OPTION
     /* 3 options in the same structure. */
     DynamicCO_Init(elemTypeText.optionSpecs, "-data",
 	1006, sizeof(ElementTextData),
@@ -4368,6 +4060,7 @@ int TreeElement_Init(Tcl_Interp *interp)
 	-1, &stringCO,
 	ElementTextDataInit);
 
+    /* 4 options in the same structure. */
     DynamicCO_Init(elemTypeText.optionSpecs, "-justify",
 	1005, sizeof(ElementTextLayout),
 	-1,
@@ -4395,17 +4088,7 @@ int TreeElement_Init(Tcl_Interp *interp)
 	Tk_Offset(ElementTextLayout, wrap),
 	StringTableCO_Alloc("-wrap", textWrapST),
 	ElementTextLayoutInit);
-#else
-    IntegerCO_Init(elemTypeText.optionSpecs, "-lines",
-	0, 	/* min */
-	0, 	/* max (ignored) */
-	-1, 	/* empty */
-	0x01); 	/* flags: min */
-    StringTableCO_Init(elemTypeText.optionSpecs, "-datatype", textDataTypeST);
-    StringTableCO_Init(elemTypeText.optionSpecs, "-justify", textJustifyST);
-    StringTableCO_Init(elemTypeText.optionSpecs, "-wrap", textWrapST);
-#endif
-#ifdef DYNAMIC_OPTION
+
     DynamicCO_Init(elemTypeText.optionSpecs, "-draw",
 	1002, sizeof(PerStateInfo),
 	Tk_Offset(struct PerStateInfo, obj),
@@ -4426,7 +4109,6 @@ int TreeElement_Init(Tcl_Interp *interp)
 	Tk_Offset(struct ElementTextVar, varNameObj),
 	-1, &stringCO,
 	(DynamicOptionInitProc *) NULL);
-#endif
 
     PerStateCO_Init(elemTypeWindow.optionSpecs, "-draw",
 	&pstBoolean, TreeStateFromObj);
