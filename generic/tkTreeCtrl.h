@@ -1031,6 +1031,7 @@ struct DynamicOption
 extern char *DynamicOption_FindData(DynamicOption *first, int id);
 extern void DynamicOption_Free(DynamicOption *first);
 
+typedef void (DynamicOptionInitProc)(char *data);
 extern int
 DynamicCO_Init(
     Tk_OptionSpec *optionTable,
@@ -1039,8 +1040,17 @@ DynamicCO_Init(
     int size,
     int objOffset,
     int internalOffset,
-    Tk_ObjCustomOption *custom
+    Tk_ObjCustomOption *custom,
+    DynamicOptionInitProc *init
     );
+
+typedef struct DynamicPixels DynamicPixels;
+struct DynamicPixels
+{
+    int pixels;
+    Tcl_Obj *objPtr;
+};
+extern Tk_ObjCustomOption pixelsCO;
 
 extern Tk_ObjCustomOption stringCO;
 
