@@ -35,12 +35,30 @@ DO_Pixels(
     return -1;
 }
 
+/*
+ *----------------------------------------------------------------------
+ *
+ * DO_BooleanForState --
+ * DO_ColorForState --
+ * DO_FontForState --
+ *
+ *	Returns the value of a per-state option for an element.
+ *
+ * Results:
+ *	None.
+ *
+ * Side effects:
+ *	None.
+ *
+ *----------------------------------------------------------------------
+ */
+
 int
 DO_BooleanForState(
-    TreeCtrl *tree,
-    Element *elem,
-    int id,
-    int state
+    TreeCtrl *tree,		/* Widget info. */
+    Element *elem,		/* Element to examine. */
+    int id,			/* Unique id of dynamic option. */
+    int state			/* STATE_xxx flags. */
     )
 {
     int result = -1;
@@ -119,13 +137,30 @@ DO_FontForState(
     return result;
 }
 
+/*
+ *----------------------------------------------------------------------
+ *
+ * DO_ObjectForState --
+ *
+ *	Returns the object representation of a per-state option
+ *	for an element.
+ *
+ * Results:
+ *	None.
+ *
+ * Side effects:
+ *	None.
+ *
+ *----------------------------------------------------------------------
+ */
+
 Tcl_Obj *
 DO_ObjectForState(
-    TreeCtrl *tree,
-    PerStateType *typePtr,
-    Element *elem,
-    int id,
-    int state
+    TreeCtrl *tree,		/* Widget info. */
+    PerStateType *typePtr,	/* Type-specific functions and values. */
+    Element *elem,		/* Element to examine. */
+    int id,			/* Unique id of dynamic option. */
+    int state			/* STATE_xxx flags. */
     )
 {
     Tcl_Obj *result = NULL;
@@ -400,31 +435,60 @@ int BooleanCO_Init(Tk_OptionSpec *optionTable, CONST char *optionName)
     return TCL_ERROR;
 }
 
-int IntegerCO_Init(Tk_OptionSpec *optionTable, CONST char *optionName,
-	int min, int max, int empty, int flags)
+Tk_ObjCustomOption *
+IntegerCO_Alloc(
+    CONST char *optionName,
+    int min,
+    int max,
+    int empty,
+    int flags
+    )
 {
     IntegerClientData *cd;
+    Tk_ObjCustomOption *co;
+
+    /* ClientData for the Tk custom option record */
+    cd = (IntegerClientData *) ckalloc(sizeof(IntegerClientData));
+    cd->min = min;
+    cd->max = max;
+    cd->empty = empty;
+    cd->flags = flags;
+
+    /* The Tk custom option record */
+    co = (Tk_ObjCustomOption *) ckalloc(sizeof(Tk_ObjCustomOption));
+    co->name = (char *) optionName + 1;
+    co->setProc = IntegerSet;
+    co->getProc = IntegerGet;
+    co->restoreProc = IntegerRestore;
+    co->freeProc = NULL;
+    co->clientData = (ClientData) cd;
+
+    return co;
+}
+
+int
+IntegerCO_Init(
+    Tk_OptionSpec *optionTable,
+    CONST char *optionName,
+    int min,
+    int max,
+    int empty,
+    int flags
+    )
+{
     Tk_ObjCustomOption *co;
     int i;
 
     for (i = 0; optionTable[i].type != TK_OPTION_END; i++) {
 	if (!strcmp(optionTable[i].optionName, optionName)) {
 
-	    /* ClientData for the Tk custom option record */
-	    cd = (IntegerClientData *) ckalloc(sizeof(IntegerClientData));
-	    cd->min = min;
-	    cd->max = max;
-	    cd->empty = empty;
-	    cd->flags = flags;
+	    if (optionTable[i].type != TK_OPTION_CUSTOM)
+		panic("IntegerCO_Init: %s is not TK_OPTION_CUSTOM", optionName);
 
-	    /* The Tk custom option record */
-	    co = (Tk_ObjCustomOption *) ckalloc(sizeof(Tk_ObjCustomOption));
-	    co->name = (char *) optionName + 1;
-	    co->setProc = IntegerSet;
-	    co->getProc = IntegerGet;
-	    co->restoreProc = IntegerRestore;
-	    co->freeProc = NULL;
-	    co->clientData = (ClientData) cd;
+	    if (optionTable[i].clientData != NULL)
+		return TCL_OK;
+
+	    co = IntegerCO_Alloc(optionName, min, max, empty, flags);
 
 	    /* Update the option table */
 	    optionTable[i].clientData = (ClientData) co;
@@ -2173,17 +2237,17 @@ struct ElementText
 #endif
     struct PerStateGC *gc;
 #define TK_JUSTIFY_NULL -1
+#ifndef DYNAMIC_OPTION
     int justify;			/* -justify */
     int lines;				/* -lines */
-#ifndef DYNAMIC_OPTION
     Tcl_Obj *widthObj;			/* -width */
     int width;				/* -width */
-#endif
 #define TEXT_WRAP_NULL -1
 #define TEXT_WRAP_CHAR 0
 #define TEXT_WRAP_NONE 1
 #define TEXT_WRAP_WORD 2
     int wrap;				/* -wrap */
+#endif
     TextLayout layout;
     int layoutWidth;
     int neededWidth;
@@ -2224,16 +2288,17 @@ typedef struct ElementTextData {
     Tcl_Obj *formatObj;			/* -format */
 } ElementTextData;
 
-static void
-ElementTextDataInit(
-    char *data
-    )
-{
-    ElementTextData *etd = (ElementTextData *) data;
-dbwin("ElementTextDataInit %p %d %p", etd->dataObj, etd->dataType, etd->formatObj);
-    etd->dataType = TDT_NULL;
-dbwin("ElementTextDataInit %p %d %p", etd->dataObj, etd->dataType, etd->formatObj);
-}
+typedef struct ElementTextLayout {
+    int justify;			/* -justify */
+    int lines;				/* -lines */
+    Tcl_Obj *widthObj;			/* -width */
+    int width;				/* -width */
+#define TEXT_WRAP_NULL -1
+#define TEXT_WRAP_CHAR 0
+#define TEXT_WRAP_NONE 1
+#define TEXT_WRAP_WORD 2
+    int wrap;				/* -wrap */
+} ElementTextLayout;
 
 #ifdef TEXTVAR
 typedef struct ElementTextVar {
@@ -2243,6 +2308,30 @@ typedef struct ElementTextVar {
     TreeItemColumn column;		/* needed to redisplay */
 } ElementTextVar;
 #endif
+
+/* Called by the dynamic-option code when an ElementTextData is allocated. */
+static void
+ElementTextDataInit(
+    char *data
+    )
+{
+    ElementTextData *etd = (ElementTextData *) data;
+
+    etd->dataType = TDT_NULL;
+}
+
+/* Called by the dynamic-option code when an ElementTextLayout is allocated. */
+static void
+ElementTextLayoutInit(
+    char *data
+    )
+{
+    ElementTextLayout *etl = (ElementTextLayout *) data;
+
+    etl->justify = TK_JUSTIFY_NULL;
+    etl->lines = -1;
+    etl->wrap = TEXT_WRAP_NULL;
+}
 
 #endif /* DYNAMIC_OPTION */
 
@@ -2292,17 +2381,23 @@ static Tk_OptionSpec textOptionSpecs[] = {
     {TK_OPTION_CUSTOM, "-format", (char *) NULL, (char *) NULL,
      (char *) NULL, -1, Tk_Offset(Element, options),
      TK_OPTION_NULL_OK, (ClientData) NULL, TEXT_CONF_DATA},
+    {TK_OPTION_CUSTOM, "-justify", (char *) NULL, (char *) NULL,
+     (char *) NULL, -1, Tk_Offset(Element, options),
+     TK_OPTION_NULL_OK, (ClientData) NULL, TEXT_CONF_LAYOUT},
+    {TK_OPTION_CUSTOM, "-lines", (char *) NULL, (char *) NULL,
+     (char *) NULL, -1, Tk_Offset(Element, options),
+     TK_OPTION_NULL_OK, (ClientData) NULL, TEXT_CONF_LAYOUT},
 #else
     {TK_OPTION_STRING, "-format", (char *) NULL, (char *) NULL,
      (char *) NULL, Tk_Offset(ElementText, formatObj), -1,
      TK_OPTION_NULL_OK, (ClientData) NULL, TEXT_CONF_DATA},
-#endif
     {TK_OPTION_CUSTOM, "-justify", (char *) NULL, (char *) NULL,
      (char *) NULL, -1, Tk_Offset(ElementText, justify),
      TK_OPTION_NULL_OK, (ClientData) NULL, TEXT_CONF_LAYOUT},
     {TK_OPTION_CUSTOM, "-lines", (char *) NULL, (char *) NULL,
      (char *) NULL, -1, Tk_Offset(ElementText, lines),
      TK_OPTION_NULL_OK, (ClientData) NULL, TEXT_CONF_LAYOUT},
+#endif
     {TK_OPTION_STRING, "-text", (char *) NULL, (char *) NULL,
      (char *) NULL, Tk_Offset(ElementText, textObj),
      Tk_Offset(ElementText, text),
@@ -2319,15 +2414,19 @@ static Tk_OptionSpec textOptionSpecs[] = {
 #ifdef DYNAMIC_OPTION
     {TK_OPTION_CUSTOM, "-width", (char *) NULL, (char *) NULL,
      (char *) NULL, -1, Tk_Offset(Element, options),
+     TK_OPTION_NULL_OK, (ClientData) NULL, TEXT_CONF_LAYOUT},
+    {TK_OPTION_CUSTOM, "-wrap", (char *) NULL, (char *) NULL,
+     (char *) NULL, -1, Tk_Offset(Element, options),
+     TK_OPTION_NULL_OK, (ClientData) NULL, TEXT_CONF_LAYOUT},
 #else
     {TK_OPTION_PIXELS, "-width", (char *) NULL, (char *) NULL,
      (char *) NULL, Tk_Offset(ElementText, widthObj),
      Tk_Offset(ElementText, width),
-#endif
      TK_OPTION_NULL_OK, (ClientData) NULL, TEXT_CONF_LAYOUT},
     {TK_OPTION_CUSTOM, "-wrap", (char *) NULL, (char *) NULL,
      (char *) NULL, -1, Tk_Offset(ElementText, wrap),
      TK_OPTION_NULL_OK, (ClientData) NULL, TEXT_CONF_LAYOUT},
+#endif
     {TK_OPTION_END, (char *) NULL, (char *) NULL, (char *) NULL,
      (char *) NULL, 0, -1, 0, 0, 0}
 };
@@ -2581,7 +2680,7 @@ static void TextUpdateLayout(char *func, ElementArgs *args, int fixedWidth, int 
     int i, multiLine = FALSE;
     int textWidth;
 #ifdef DYNAMIC_OPTION
-    int width2;
+    ElementTextLayout *etl, *etlM = NULL;
 #endif
 
     if (tree->debug.enable && tree->debug.textLayout)
@@ -2605,10 +2704,21 @@ static void TextUpdateLayout(char *func, ElementArgs *args, int fixedWidth, int 
     if ((text == NULL) || (textLen == 0))
 	return;
 
+#ifdef DYNAMIC_OPTION
+    etl = (ElementTextLayout *) DynamicOption_FindData(elem->options, 1005);
+    if (masterX != NULL)
+	etlM = (ElementTextLayout *) DynamicOption_FindData(elem->master->options, 1005);
+
+    if (etl != NULL && etl->lines != -1)
+	lines = etl->lines;
+    else if (etlM != NULL && etlM->lines != -1)
+	lines = etlM->lines;
+#else
     if (elemX->lines != -1)
 	lines = elemX->lines;
     else if ((masterX != NULL) && (masterX->lines != -1))
 	lines = masterX->lines;
+#endif
     if (lines == 1)
 	return;
 
@@ -2620,10 +2730,17 @@ static void TextUpdateLayout(char *func, ElementArgs *args, int fixedWidth, int 
     if (tkfont == NULL)
 	tkfont = tree->tkfont;
 
+#ifdef DYNAMIC_OPTION
+    if (etl != NULL && etl->wrap != TEXT_WRAP_NULL)
+	wrap = etl->wrap;
+    else if (etlM != NULL && etlM->wrap != TEXT_WRAP_NULL)
+	wrap = etlM->wrap;
+#else
     if (elemX->wrap != TEXT_WRAP_NULL)
 	wrap = elemX->wrap;
     else if ((masterX != NULL) && (masterX->wrap != TEXT_WRAP_NULL))
 	wrap = masterX->wrap;
+#endif
 
     if (wrap != TEXT_WRAP_NONE) {
 	if (fixedWidth >= 0)
@@ -2631,9 +2748,13 @@ static void TextUpdateLayout(char *func, ElementArgs *args, int fixedWidth, int 
 	else if (maxWidth >= 0)
 	    width = maxWidth;
 #ifdef DYNAMIC_OPTION
-	width2 = DO_Pixels(tree, elem, 1005);
-	if (!width || (width2 < width))
-	    width = width2;
+	if (etl != NULL && etl->widthObj != NULL) {
+	    if (!width || (etl->width < width))
+		width = etl->width;
+	} else if ((etlM != NULL) && (etlM->widthObj != NULL)) {
+	    if (!width || (etlM->width < width))
+		width = etlM->width;
+	}
 #else
 	if (elemX->widthObj != NULL) {
 	    if (!width || (elemX->width < width))
@@ -2663,10 +2784,17 @@ if (tree->debug.enable && tree->debug.textLayout) dbwin("    textWidth %d\n", te
 	    return;
     }
 
+#ifdef DYNAMIC_OPTION
+    if (etl != NULL && etl->justify != TK_JUSTIFY_NULL)
+	justify = etl->justify;
+    else if (etlM != NULL && etlM->justify != TK_JUSTIFY_NULL)
+	justify = etlM->justify;
+#else
     if (elemX->justify != TK_JUSTIFY_NULL)
 	justify = elemX->justify;
     else if ((masterX != NULL) && (masterX->justify != TK_JUSTIFY_NULL))
 	justify = masterX->justify;
+#endif
 
     if (wrap == TEXT_WRAP_WORD)
 	flags |= TK_WHOLE_WORDS;
@@ -2897,12 +3025,10 @@ static int CreateProcText(ElementArgs *args)
 
 #ifndef DYNAMIC_OPTION
     elemX->dataType = TDT_NULL;
-#endif
     elemX->justify = TK_JUSTIFY_NULL;
     elemX->lines = -1;
     elemX->wrap = TEXT_WRAP_NULL;
 #ifdef TEXTVAR
-#ifndef DYNAMIC_OPTION
     elemX->tree = args->tree;
     elemX->item = args->create.item;
     elemX->column = args->create.column;
@@ -2917,12 +3043,25 @@ static void TextRedoLayoutIfNeeded(char *func, ElementArgs *args, int fixedWidth
     ElementText *masterX = (ElementText *) args->elem->master;
     int doLayout = 0;
     int wrap = TEXT_WRAP_WORD;
+#ifdef DYNAMIC_OPTION
+    ElementTextLayout *etl, *etlM = NULL;
 
+    etl = (ElementTextLayout *) DynamicOption_FindData(args->elem->options, 1005);
+    if (masterX != NULL)
+	etlM = (ElementTextLayout *) DynamicOption_FindData(args->elem->master->options, 1005);
+
+    /* If text wrapping is disabled, the layout doesn't change */
+    if (etl != NULL && etl->wrap != TEXT_WRAP_NULL)
+	wrap = etl->wrap;
+    else if ((etlM != NULL) && (etlM->wrap != TEXT_WRAP_NULL))
+	wrap = etlM->wrap;
+#else
     /* If text wrapping is disabled, the layout doesn't change */
     if (elemX->wrap != TEXT_WRAP_NULL)
 	wrap = elemX->wrap;
     else if ((masterX != NULL) && (masterX->wrap != TEXT_WRAP_NULL))
 	wrap = masterX->wrap;
+#endif
     if (wrap == TEXT_WRAP_NONE)
 	return;
 
@@ -3128,6 +3267,13 @@ static void NeededProcText(ElementArgs *args)
     Tk_Font tkfont;
     Tk_FontMetrics fm;
     int width = 0, height = 0;
+#ifdef DYNAMIC_OPTION
+    ElementTextLayout *etl, *etlM = NULL;
+
+    etl = (ElementTextLayout *) DynamicOption_FindData(args->elem->options, 1005);
+    if (masterX != NULL)
+	etlM = (ElementTextLayout *) DynamicOption_FindData(args->elem->master->options, 1005);
+#endif
 
     if ((masterX != NULL) && masterX->stringRepInvalid) {
 	args->elem = (Element *) masterX;
@@ -3181,7 +3327,10 @@ static void NeededProcText(ElementArgs *args)
 
 	    width = Tk_TextWidth(tkfont, text, textLen);
 #ifdef DYNAMIC_OPTION
-	    maxWidth = DO_Pixels(tree, elem, 1005);
+	    if (etl != NULL && etl->widthObj != NULL)
+		maxWidth = etl->width;
+	    else if ((etlM != NULL) && (etlM->widthObj != NULL))
+		maxWidth = etlM->width;
 #else
 	    if (elemX->widthObj != NULL)
 		maxWidth = elemX->width;
@@ -4200,11 +4349,6 @@ int TreeElement_Init(Tcl_Interp *interp)
     PerStateCO_Init(elemTypeText.optionSpecs, "-font",
 	&pstFont, TreeStateFromObj);
 #endif
-    IntegerCO_Init(elemTypeText.optionSpecs, "-lines",
-	0, 	/* min */
-	0, 	/* max (ignored) */
-	-1, 	/* empty */
-	0x01); 	/* flags: min */
 #ifdef DYNAMIC_OPTION
     /* 3 options in the same structure. */
     DynamicCO_Init(elemTypeText.optionSpecs, "-data",
@@ -4223,11 +4367,44 @@ int TreeElement_Init(Tcl_Interp *interp)
 	Tk_Offset(ElementTextData, formatObj),
 	-1, &stringCO,
 	ElementTextDataInit);
+
+    DynamicCO_Init(elemTypeText.optionSpecs, "-justify",
+	1005, sizeof(ElementTextLayout),
+	-1,
+	Tk_Offset(ElementTextLayout, justify),
+	StringTableCO_Alloc("-justify", textJustifyST),
+	ElementTextLayoutInit);
+    DynamicCO_Init(elemTypeText.optionSpecs, "-lines",
+	1005, sizeof(ElementTextLayout),
+	-1,
+	Tk_Offset(ElementTextLayout, lines),
+	IntegerCO_Alloc("-lines",
+	    0,		/* min */
+	    0,		/* max (ignored) */
+	    -1,		/* empty */
+	    0x01),	/* flags: min */
+	ElementTextLayoutInit);
+    DynamicCO_Init(elemTypeText.optionSpecs, "-width",
+	1005, sizeof(ElementTextLayout),
+	Tk_Offset(ElementTextLayout, widthObj),
+	Tk_Offset(ElementTextLayout, width), &pixelsCO,
+	ElementTextLayoutInit);
+    DynamicCO_Init(elemTypeText.optionSpecs, "-wrap",
+	1005, sizeof(ElementTextLayout),
+	-1,
+	Tk_Offset(ElementTextLayout, wrap),
+	StringTableCO_Alloc("-wrap", textWrapST),
+	ElementTextLayoutInit);
 #else
+    IntegerCO_Init(elemTypeText.optionSpecs, "-lines",
+	0, 	/* min */
+	0, 	/* max (ignored) */
+	-1, 	/* empty */
+	0x01); 	/* flags: min */
     StringTableCO_Init(elemTypeText.optionSpecs, "-datatype", textDataTypeST);
-#endif
     StringTableCO_Init(elemTypeText.optionSpecs, "-justify", textJustifyST);
     StringTableCO_Init(elemTypeText.optionSpecs, "-wrap", textWrapST);
+#endif
 #ifdef DYNAMIC_OPTION
     DynamicCO_Init(elemTypeText.optionSpecs, "-draw",
 	1002, sizeof(PerStateInfo),
@@ -4248,11 +4425,6 @@ int TreeElement_Init(Tcl_Interp *interp)
 	1001, sizeof(ElementTextVar),
 	Tk_Offset(struct ElementTextVar, varNameObj),
 	-1, &stringCO,
-	(DynamicOptionInitProc *) NULL);
-    DynamicCO_Init(elemTypeText.optionSpecs, "-width",
-	1005, sizeof(DynamicPixels),
-	Tk_Offset(DynamicPixels, objPtr),
-	Tk_Offset(DynamicPixels, pixels), &pixelsCO,
 	(DynamicOptionInitProc *) NULL);
 #endif
 

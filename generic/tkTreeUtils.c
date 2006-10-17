@@ -4539,6 +4539,25 @@ TagExpr_Free(
 	ckfree((char *) expr->uids);
 }
 
+/*
+ *----------------------------------------------------------------------
+ *
+ * OptionHax_Remember --
+ * OptionHax_Forget --
+ *
+ *	These procedures are used to work around a limitation in
+ *	the Tk_SavedOption structure: the internal form of a configuration
+ *	option cannot be larger than a double.
+ *
+ * Results:
+ *	None.
+ *
+ * Side effects:
+ *	None.
+ *
+ *----------------------------------------------------------------------
+ */
+
 void
 OptionHax_Remember(
     TreeCtrl *tree,
@@ -4575,6 +4594,26 @@ dbwin("OptionHax_Forget %p\n", ptr);
     return 0;
 }
 
+/*
+ *----------------------------------------------------------------------
+ *
+ * PerStateCO_Set --
+ * PerStateCO_Get --
+ * PerStateCO_Restore --
+ * PerStateCO_Free --
+ *
+ *	These procedures implement a TK_OPTION_CUSTOM where the custom
+ *	option is a PerStateInfo record.
+ *
+ * Results:
+ *	None.
+ *
+ * Side effects:
+ *	None.
+ *
+ *----------------------------------------------------------------------
+ */
+
 typedef struct PerStateCOClientData
 {
     PerStateType *typePtr;
@@ -4608,7 +4647,6 @@ PerStateCO_Set(
     if ((flags & TK_OPTION_NULL_OK) && objEmpty)
 	(*value) = NULL;
     else {
-if ((*value) == NULL) panic("PerStateCO_Set: *value == NULL");
 	new.obj = (*value);
 	new.data = NULL;
 	new.count = 0;
@@ -4700,6 +4738,22 @@ PerStateCO_Free(
 	Tcl_DecrRefCount(objPtr);
 }
 
+/*
+ *----------------------------------------------------------------------
+ *
+ * PerStateCO_Alloc --
+ *
+ *	Allocates a Tk_ObjCustomOption record and clientData.
+ *
+ * Results:
+ *	None.
+ *
+ * Side effects:
+ *	None.
+ *
+ *----------------------------------------------------------------------
+ */
+
 Tk_ObjCustomOption *
 PerStateCO_Alloc(
     CONST char *optionName,
@@ -4726,6 +4780,22 @@ PerStateCO_Alloc(
 
     return co;
 }
+
+/*
+ *----------------------------------------------------------------------
+ *
+ * PerStateCO_Init --
+ *
+ *	Initializes a Tk_OptionSpec.clientData for a custom option.
+ *
+ * Results:
+ *	None.
+ *
+ * Side effects:
+ *	None.
+ *
+ *----------------------------------------------------------------------
+ */
 
 int
 PerStateCO_Init(
@@ -4759,10 +4829,26 @@ PerStateCO_Init(
 
 #define DEBUG_DYNAMICxxx
 
+/*
+ *----------------------------------------------------------------------
+ *
+ * DynamicOption_Find --
+ *
+ *	Returns a pointer to a dynamic-option record or NULL.
+ *
+ * Results:
+ *	None.
+ *
+ * Side effects:
+ *	None.
+ *
+ *----------------------------------------------------------------------
+ */
+
 DynamicOption *
 DynamicOption_Find(
-    DynamicOption *first,
-    int id
+    DynamicOption *first,	/* Head of linked list. */
+    int id			/* Unique id. */
     )
 {
     DynamicOption *opt = first;
@@ -4775,10 +4861,27 @@ DynamicOption_Find(
     return NULL;
 }
 
+/*
+ *----------------------------------------------------------------------
+ *
+ * DynamicOption_FindData --
+ *
+ *	Returns a pointer to the option-specific data for a
+ *	dynamic-option record or NULL.
+ *
+ * Results:
+ *	None.
+ *
+ * Side effects:
+ *	None.
+ *
+ *----------------------------------------------------------------------
+ */
+
 char *
 DynamicOption_FindData(
-    DynamicOption *first,
-    int id
+    DynamicOption *first,	/* Head of linked list. */
+    int id			/* Unique id. */
     )
 {
     DynamicOption *opt = DynamicOption_Find(first, id);
@@ -4787,12 +4890,32 @@ DynamicOption_FindData(
     return NULL;
 }
 
+/*
+ *----------------------------------------------------------------------
+ *
+ * DynamicOption_AllocIfNeeded --
+ *
+ *	Returns a pointer to a dynamic-option record.
+ *
+ * Results:
+ *	If the dynamic-option record exists, it is returned. Otherwise
+ *	a new one is allocated and initialized.
+ *
+ * Side effects:
+ *	Memory may be allocated.
+ *
+ *----------------------------------------------------------------------
+ */
+
 DynamicOption *
 DynamicOption_AllocIfNeeded(
-    DynamicOption **firstPtr,
-    int id,
-    int size,
-    DynamicOptionInitProc *init
+    DynamicOption **firstPtr,	/* Pointer to the head of linked list.
+				 * Will be updated if a new record is
+				 * created. */
+    int id,			/* Unique id. */
+    int size,			/* Size of option-specific data. */
+    DynamicOptionInitProc *init	/* Proc to intialized the option-specific
+				 * data. May be NULL. */
     )
 {
     DynamicOption *opt = *firstPtr;
@@ -4816,6 +4939,23 @@ dbwin("DynamicOption_AllocIfNeeded allocated id=%d\n", id);
     return opt;
 }
 
+/*
+ *----------------------------------------------------------------------
+ *
+ * DynamicOption_Free --
+ *
+ *	Free a linked list of dynamic-option records. This gets called
+ *	after Tk_FreeConfigOptions.
+ *
+ * Results:
+ *	None.
+ *
+ * Side effects:
+ *	Memory may be freed.
+ *
+ *----------------------------------------------------------------------
+ */
+
 void
 DynamicOption_Free(
     DynamicOption *first
@@ -4831,22 +4971,54 @@ DynamicOption_Free(
     }
 }
 
+/*
+ *----------------------------------------------------------------------
+ *
+ * DynamicCO_Set --
+ * DynamicCO_Get --
+ * DynamicCO_Restore --
+ * DynamicCO_Free --
+ *
+ *	These procedures implement a TK_OPTION_CUSTOM where the custom
+ *	option is a DynamicOption record.
+ *
+ *	A dynamic option is one for which storage is not allocated until
+ *	the option is configured for the first time. Dynamic options are
+ *	saved in a linked list.
+ *
+ * Results:
+ *	None.
+ *
+ * Side effects:
+ *	None.
+ *
+ *----------------------------------------------------------------------
+ */
+
+/* This is the Tk_OptionSpec.clientData field for a dynamic option. */
 typedef struct DynamicCOClientData
 {
-    int id;
-    int size;
-    int objOffset;
-    int internalOffset;
-    Tk_ObjCustomOption *custom;
-    DynamicOptionInitProc *init;
+    int id;			/* Unique id. */
+    int size;			/* Size of client data. */
+    int objOffset;		/* Offset in the client data to store the
+				 * object representation of the option.
+				 * May be < 0. */
+    int internalOffset;		/* Offset in the client data to store the
+				 * internal representation of the option.
+				 * May be < 0. */
+    Tk_ObjCustomOption *custom;	/* Table of procedures and clientData for
+				 * the actual option. */
+    DynamicOptionInitProc *init;/* This gets called to initialize the client
+				 * data when it is first allocated. May be
+				 * NULL. */
 } DynamicCOClientData;
 
+/* This is used to save the current value of an option when a call to
+ * Tk_SetOptions is in progress. */
 typedef struct DynamicCOSave
 {
-    Tcl_Obj *objPtr;
-    double internalForm;	/* This can't be first, or OptionHax_xxx
-				 * may enter its address twice: once by
-				 * DynamicCO_Set, and once for PerStateCO_Set */
+    Tcl_Obj *objPtr;		/* The object representation of the option. */
+    double internalForm;	/* The internal form of the option. */
 } DynamicCOSave;
 
 static int
@@ -4995,16 +5167,40 @@ dbwin("DynamicCO_Free id=%d internalPtr=%p save=NULL\n", cd->id, internalPtr);
     }
 }
 
+/*
+ *----------------------------------------------------------------------
+ *
+ * DynamicOption_Init --
+ *
+ *	Initialize a Tk_OptionSpec.clientData field before calling
+ *	Tk_CreateOptionTable.
+ *
+ * Results:
+ *	None.
+ *
+ * Side effects:
+ *	Memory may be allocated.
+ *
+ *----------------------------------------------------------------------
+ */
+
 int
 DynamicCO_Init(
-    Tk_OptionSpec *optionTable,
-    CONST char *optionName,
-    int id,
-    int size,
-    int objOffset,
-    int internalOffset,
-    Tk_ObjCustomOption *custom,
-    DynamicOptionInitProc *init
+    Tk_OptionSpec *optionTable,	/* Table to search. */
+    CONST char *optionName,	/* Name of the option. */
+    int id,			/* Unique id. */
+    int size,			/* Size of client data. */
+    int objOffset,		/* Offset in the client data to store the
+				 * object representation of the option.
+				 * May be < 0. */
+    int internalOffset,		/* Offset in the client data to store the
+				 * internal representation of the option.
+				 * May be < 0. */
+    Tk_ObjCustomOption *custom,	/* Table of procedures and clientData for
+				 * the actual option. */
+    DynamicOptionInitProc *init	/* This gets called to initialize the client
+				 * data when it is first allocated. May be
+				 * NULL. */
     )
 {
     DynamicCOClientData *cd;
@@ -5022,7 +5218,7 @@ DynamicCO_Init(
 	    return TCL_OK;
 
 	if (optionTable[i].type != TK_OPTION_CUSTOM)
-	    panic("DynamicCO_Init: option %d is not TK_OPTION_CUSTOM", i);
+	    panic("DynamicCO_Init: %s is not TK_OPTION_CUSTOM", optionName);
 
 	/* ClientData for the Tk custom option record */
 	cd = (DynamicCOClientData *) ckalloc(sizeof(DynamicCOClientData));
@@ -5052,6 +5248,27 @@ dbwin("DynamicCO_Init id=%d size=%d objOffset=%d internalOffset=%d custom->name=
     }
     return TCL_ERROR;
 }
+
+/*
+ *----------------------------------------------------------------------
+ *
+ * StringCO_Set --
+ * StringCO_Get --
+ * StringCO_Restore --
+ * StringCO_Free --
+ *
+ *	These procedures implement a TK_OPTION_CUSTOM where the custom
+ *	option is exactly the same as a TK_OPTION_STRING. This is used
+ *	when storage for the option is dynamically allocated.
+ *
+ * Results:
+ *	None.
+ *
+ * Side effects:
+ *	None.
+ *
+ *----------------------------------------------------------------------
+ */
 
 static int
 StringCO_Set(
@@ -5140,6 +5357,26 @@ Tk_ObjCustomOption stringCO =
     StringCO_Free,
     (ClientData) NULL
 };
+
+/*
+ *----------------------------------------------------------------------
+ *
+ * PixelsCO_Set --
+ * PixelsCO_Get --
+ * PixelsCO_Restore --
+ *
+ *	These procedures implement a TK_OPTION_CUSTOM where the custom
+ *	option is exactly the same as a TK_OPTION_PIXELS. This is used
+ *	when storage for the option is dynamically allocated.
+ *
+ * Results:
+ *	None.
+ *
+ * Side effects:
+ *	None.
+ *
+ *----------------------------------------------------------------------
+ */
 
 static int
 PixelsCO_Set(
