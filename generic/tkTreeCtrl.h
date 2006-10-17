@@ -1006,6 +1006,12 @@ extern int TagExpr_Scan(TagExpr *expr);
 extern int TagExpr_Eval(TagExpr *expr, TagInfo *tags);
 extern void TagExpr_Free(TagExpr *expr);
 
+extern Tk_ObjCustomOption *
+PerStateCO_Alloc(
+    CONST char *optionName,
+    PerStateType *typePtr,
+    StateFromObjProc proc
+    );
 extern int PerStateCO_Init(Tk_OptionSpec *optionTable, CONST char *optionName,
     PerStateType *typePtr, StateFromObjProc proc);
 

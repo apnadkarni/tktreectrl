@@ -11,6 +11,123 @@
 #include "tkTreeCtrl.h"
 #include "tkTreeElem.h"
 
+#ifdef DYNAMIC_OPTION
+
+int
+DO_BooleanForState(
+    TreeCtrl *tree,
+    Element *elem,
+    int id,
+    int state
+    )
+{
+    int result = -1;
+    PerStateInfo *psi;
+    int match = MATCH_NONE;
+
+    psi = (PerStateInfo *) DynamicOption_FindData(elem->options, id);
+    if (psi != NULL)
+	result = PerStateBoolean_ForState(tree, psi, state, &match);
+    if ((match != MATCH_EXACT) && (elem->master != NULL)) {
+	PerStateInfo *psi = (PerStateInfo *) DynamicOption_FindData(
+		elem->master->options, id);
+	if (psi != NULL) {
+	    int matchM;
+	    int resultM = PerStateBoolean_ForState(tree, psi, state, &matchM);
+	    if (matchM > match)
+		result = resultM;
+	}
+    }
+    return result;
+}
+
+XColor *
+DO_ColorForState(
+    TreeCtrl *tree,
+    Element *elem,
+    int id,
+    int state
+    )
+{
+    XColor *result = NULL;
+    PerStateInfo *psi;
+    int match = MATCH_NONE;
+
+    psi = (PerStateInfo *) DynamicOption_FindData(elem->options, id);
+    if (psi != NULL)
+	result = PerStateColor_ForState(tree, psi, state, &match);
+    if ((match != MATCH_EXACT) && (elem->master != NULL)) {
+	PerStateInfo *psi = (PerStateInfo *) DynamicOption_FindData(
+		elem->master->options, id);
+	if (psi != NULL) {
+	    int matchM;
+	    XColor *resultM = PerStateColor_ForState(tree, psi, state, &matchM);
+	    if (matchM > match)
+		result = resultM;
+	}
+    }
+    return result;
+}
+
+Tk_Font
+DO_FontForState(
+    TreeCtrl *tree,
+    Element *elem,
+    int id,
+    int state
+    )
+{
+    Tk_Font result = NULL;
+    PerStateInfo *psi;
+    int match = MATCH_NONE;
+
+    psi = (PerStateInfo *) DynamicOption_FindData(elem->options, id);
+    if (psi != NULL)
+	result = PerStateFont_ForState(tree, psi, state, &match);
+    if ((match != MATCH_EXACT) && (elem->master != NULL)) {
+	PerStateInfo *psi = (PerStateInfo *) DynamicOption_FindData(
+		elem->master->options, id);
+	if (psi != NULL) {
+	    int matchM;
+	    Tk_Font resultM = PerStateFont_ForState(tree, psi, state, &matchM);
+	    if (matchM > match)
+		result = resultM;
+	}
+    }
+    return result;
+}
+
+Tcl_Obj *
+DO_ObjectForState(
+    TreeCtrl *tree,
+    PerStateType *typePtr,
+    Element *elem,
+    int id,
+    int state
+    )
+{
+    Tcl_Obj *result = NULL;
+    PerStateInfo *psi;
+    int match = MATCH_NONE;
+
+    psi = (PerStateInfo *) DynamicOption_FindData(elem->options, id);
+    if (psi != NULL)
+	result = PerStateInfo_ObjForState(tree, typePtr, psi, state, &match);
+    if ((match != MATCH_EXACT) && (elem->master != NULL)) {
+	PerStateInfo *psi = (PerStateInfo *) DynamicOption_FindData(
+		elem->master->options, id);
+	if (psi != NULL) {
+	    int matchM;
+	    Tcl_Obj *resultM = PerStateInfo_ObjForState(tree, typePtr, psi, state, &matchM);
+	    if (matchM > match)
+		result = resultM;
+	}
+    }
+    return result;
+}
+
+#endif /* DYNAMIC_OPTION */
+
 /* BEGIN custom "boolean" option */
 
 /* Just like TK_OPTION_BOOLEAN but supports TK_OPTION_NULL_OK */
@@ -1993,7 +2110,9 @@ typedef struct ElementText ElementText;
 struct ElementText
 {
     Element header;
+#ifndef DYNAMIC_OPTION
     PerStateInfo draw;			/* -draw */
+#endif
     Tcl_Obj *textObj;			/* -text */
     char *text;
     int textLen;
@@ -2008,8 +2127,10 @@ struct ElementText
     int dataType;			/* -datatype */
     Tcl_Obj *formatObj;			/* -format */
     int stringRepInvalid;
+#ifndef DYNAMIC_OPTION
     PerStateInfo font;			/* -font */
     PerStateInfo fill;			/* -fill */
+#endif
     struct PerStateGC *gc;
 #define TK_JUSTIFY_NULL -1
     int justify;			/* -justify */
@@ -2072,17 +2193,29 @@ static Tk_OptionSpec textOptionSpecs[] = {
      (char *) NULL, -1, Tk_Offset(ElementText, dataType),
      TK_OPTION_NULL_OK, (ClientData) NULL, TEXT_CONF_DATA},
     {TK_OPTION_CUSTOM, "-draw", (char *) NULL, (char *) NULL,
+#ifdef DYNAMIC_OPTION
+     (char *) NULL, -1, Tk_Offset(Element, options),
+#else
      (char *) NULL, -1, Tk_Offset(ElementText, draw),
+#endif
      TK_OPTION_NULL_OK, (ClientData) NULL, TEXT_CONF_DRAW},
+    {TK_OPTION_CUSTOM, "-fill", (char *) NULL, (char *) NULL,
+#ifdef DYNAMIC_OPTION
+     (char *) NULL, -1, Tk_Offset(Element, options),
+#else
+     (char *) NULL, -1, Tk_Offset(ElementText, fill),
+#endif
+     TK_OPTION_NULL_OK, (ClientData) NULL,  TEXT_CONF_FILL},
+    {TK_OPTION_CUSTOM, "-font", (char *) NULL, (char *) NULL,
+#ifdef DYNAMIC_OPTION
+     (char *) NULL, -1, Tk_Offset(Element, options),
+#else
+     (char *) NULL, -1, Tk_Offset(ElementText, font),
+#endif
+     TK_OPTION_NULL_OK, (ClientData) NULL, TEXT_CONF_FONT},
     {TK_OPTION_STRING, "-format", (char *) NULL, (char *) NULL,
      (char *) NULL, Tk_Offset(ElementText, formatObj), -1,
      TK_OPTION_NULL_OK, (ClientData) NULL, TEXT_CONF_DATA},
-    {TK_OPTION_CUSTOM, "-fill", (char *) NULL, (char *) NULL,
-     (char *) NULL, -1, Tk_Offset(ElementText, fill),
-     TK_OPTION_NULL_OK, (ClientData) NULL,  TEXT_CONF_FILL},
-    {TK_OPTION_CUSTOM, "-font", (char *) NULL, (char *) NULL,
-     (char *) NULL, -1, Tk_Offset(ElementText, font),
-     TK_OPTION_NULL_OK, (ClientData) NULL, TEXT_CONF_FONT},
     {TK_OPTION_CUSTOM, "-justify", (char *) NULL, (char *) NULL,
      (char *) NULL, -1, Tk_Offset(ElementText, justify),
      TK_OPTION_NULL_OK, (ClientData) NULL, TEXT_CONF_LAYOUT},
@@ -2364,7 +2497,11 @@ static void TextUpdateLayout(char *func, ElementArgs *args, int fixedWidth, int 
     if (lines == 1)
 	return;
 
+#ifdef DYNAMIC_OPTION
+    tkfont = DO_FontForState(tree, elem, 1004, state);
+#else
     FONT_FOR_STATE(tkfont, font, state)
+#endif
     if (tkfont == NULL)
 	tkfont = tree->tkfont;
 
@@ -2722,7 +2859,11 @@ static void DisplayProcText(ElementArgs *args)
     char *ellipsis = "...";
     TkRegion clipRgn = NULL;
 
+#ifdef DYNAMIC_OPTION
+    draw = DO_BooleanForState(tree, elem, 1002, state);
+#else
     BOOLEAN_FOR_STATE(draw, draw, state)
+#endif
     if (!draw)
 	return;
 
@@ -2734,9 +2875,14 @@ static void DisplayProcText(ElementArgs *args)
     if (text == NULL) /* always false (or layout sets height/width to zero) */
 	return;
 
+#ifdef DYNAMIC_OPTION
+    color = DO_ColorForState(tree, elem, 1003, state);
+    tkfont = DO_FontForState(tree, elem, 1004, state);
+#else
     COLOR_FOR_STATE(color, fill, state)
 
     FONT_FOR_STATE(tkfont, font, state)
+#endif
 
     /* FIXME: -font {"" {state...}}*/
     if ((color != NULL) || (tkfont != NULL)) {
@@ -2902,7 +3048,11 @@ static void NeededProcText(ElementArgs *args)
 	if (text != NULL) {
 	    int maxWidth = -1;
 
+#ifdef DYNAMIC_OPTION
+	    tkfont = DO_FontForState(tree, elem, 1004, state);
+#else
 	    FONT_FOR_STATE(tkfont, font, state)
+#endif
 	    if (tkfont == NULL)
 		tkfont = tree->tkfont;
 
@@ -2947,7 +3097,11 @@ static void HeightProcText(ElementArgs *args)
 	    text = masterX->text;
 	}
 	if (text != NULL) {
+#ifdef DYNAMIC_OPTION
+	    tkfont = DO_FontForState(tree, elem, 1004, state);
+#else
 	    FONT_FOR_STATE(tkfont, font, state)
+#endif
 	    if (tkfont == NULL)
 		tkfont = tree->tkfont;
 	    Tk_GetFontMetrics(tkfont, &fm);
@@ -3022,17 +3176,29 @@ static int StateProcText(ElementArgs *args)
     Tk_Font tkfont1, tkfont2;
     int mask = 0;
 
+#ifdef DYNAMIC_OPTION
+    draw1 = DO_BooleanForState(tree, elem, 1002, args->states.state1);
+    f1 = DO_ColorForState(tree, elem, 1003, args->states.state1);
+    tkfont1 = DO_FontForState(tree, elem, 1004, args->states.state1);
+#else
     BOOLEAN_FOR_STATE(draw1, draw, args->states.state1)
     if (draw1 == -1)
 	draw1 = 1;
     COLOR_FOR_STATE(f1, fill, args->states.state1)
     FONT_FOR_STATE(tkfont1, font, args->states.state1)
+#endif
 
+#ifdef DYNAMIC_OPTION
+    draw2 = DO_BooleanForState(tree, elem, 1002, args->states.state1);
+    f2 = DO_ColorForState(tree, elem, 1003, args->states.state1);
+    tkfont2 = DO_FontForState(tree, elem, 1004, args->states.state1);
+#else
     BOOLEAN_FOR_STATE(draw2, draw, args->states.state2)
     if (draw2 == -1)
 	draw2 = 1;
     COLOR_FOR_STATE(f2, fill, args->states.state2)
     FONT_FOR_STATE(tkfont2, font, args->states.state2)
+#endif
 
     if (tkfont1 != tkfont2)
 	mask |= CS_DISPLAY | CS_LAYOUT;
@@ -3048,10 +3214,22 @@ static int UndefProcText(ElementArgs *args)
     TreeCtrl *tree = args->tree;
     ElementText *elemX = (ElementText *) args->elem;
     int modified = 0;
+#ifdef DYNAMIC_OPTION
+    PerStateInfo *psi;
+#endif
 
+#ifdef DYNAMIC_OPTION
+    if ((psi = (PerStateInfo *) DynamicOption_FindData(args->elem->options, 1002)) != NULL)
+	modified |= PerStateInfo_Undefine(tree, &pstBoolean, psi, args->state);
+    if ((psi = (PerStateInfo *) DynamicOption_FindData(args->elem->options, 1003)) != NULL)
+	modified |= PerStateInfo_Undefine(tree, &pstColor, psi, args->state);
+    if ((psi = (PerStateInfo *) DynamicOption_FindData(args->elem->options, 1004)) != NULL)
+	modified |= PerStateInfo_Undefine(tree, &pstFont, psi, args->state);
+#else
     modified |= PerStateInfo_Undefine(tree, &pstBoolean, &elemX->draw, args->state);
     modified |= PerStateInfo_Undefine(tree, &pstColor, &elemX->fill, args->state);
     modified |= PerStateInfo_Undefine(tree, &pstFont, &elemX->font, args->state);
+#endif
     return modified;
 }
 
@@ -3073,17 +3251,29 @@ static int ActualProcText(ElementArgs *args)
     switch (index) {
 	case 0:
 	{
+#ifdef DYNAMIC_OPTION
+	    obj = DO_ObjectForState(tree, &pstBoolean, args->elem, 1002, args->state);
+#else
 	    OBJECT_FOR_STATE(obj, pstBoolean, draw, args->state)
+#endif
 	    break;
 	}
 	case 1:
 	{
+#ifdef DYNAMIC_OPTION
+	    obj = DO_ObjectForState(tree, &pstColor, args->elem, 1003, args->state);
+#else
 	    OBJECT_FOR_STATE(obj, pstColor, fill, args->state)
+#endif
 	    break;
 	}
 	case 2:
 	{
+#ifdef DYNAMIC_OPTION
+	    obj = DO_ObjectForState(tree, &pstFont, args->elem, 1004, args->state);
+#else
 	    OBJECT_FOR_STATE(obj, pstFont, font, args->state)
+#endif
 	    break;
 	}
     }
@@ -3635,8 +3825,8 @@ static int UndefProcWindow(ElementArgs *args)
 static int ActualProcWindow(ElementArgs *args)
 {
     TreeCtrl *tree = args->tree;
-    ElementText *elemX = (ElementText *) args->elem;
-    ElementText *masterX = (ElementText *) args->elem->master;
+    ElementWindow *elemX = (ElementWindow *) args->elem;
+    ElementWindow *masterX = (ElementWindow *) args->elem->master;
     static CONST char *optionName[] = {
 	"-draw",
 	(char *) NULL };
@@ -3853,12 +4043,15 @@ int TreeElement_Init(Tcl_Interp *interp)
     PerStateCO_Init(elemTypeRect.optionSpecs, "-outline",
 	&pstColor, TreeStateFromObj);
 
+#ifdef DYNAMIC_OPTION
+#else
     PerStateCO_Init(elemTypeText.optionSpecs, "-draw",
 	&pstBoolean, TreeStateFromObj);
     PerStateCO_Init(elemTypeText.optionSpecs, "-fill",
 	&pstColor, TreeStateFromObj);
     PerStateCO_Init(elemTypeText.optionSpecs, "-font",
 	&pstFont, TreeStateFromObj);
+#endif
     IntegerCO_Init(elemTypeText.optionSpecs, "-lines",
 	0, 	/* min */
 	0, 	/* max (ignored) */
@@ -3868,6 +4061,18 @@ int TreeElement_Init(Tcl_Interp *interp)
     StringTableCO_Init(elemTypeText.optionSpecs, "-justify", textJustifyST);
     StringTableCO_Init(elemTypeText.optionSpecs, "-wrap", textWrapST);
 #ifdef DYNAMIC_OPTION
+    DynamicCO_Init(elemTypeText.optionSpecs, "-draw",
+	1002, sizeof(PerStateInfo),
+	Tk_Offset(struct PerStateInfo, obj),
+	0, PerStateCO_Alloc("-draw", &pstBoolean, TreeStateFromObj));
+    DynamicCO_Init(elemTypeText.optionSpecs, "-fill",
+	1003, sizeof(PerStateInfo),
+	Tk_Offset(struct PerStateInfo, obj),
+	0, PerStateCO_Alloc("-fill", &pstColor, TreeStateFromObj));
+    DynamicCO_Init(elemTypeText.optionSpecs, "-font",
+	1004, sizeof(PerStateInfo),
+	Tk_Offset(struct PerStateInfo, obj),
+	0, PerStateCO_Alloc("-font", &pstFont, TreeStateFromObj));
     DynamicCO_Init(elemTypeText.optionSpecs, "-textvariable",
 	1001, sizeof(ElementTextVar),
 	Tk_Offset(struct ElementTextVar, varNameObj),

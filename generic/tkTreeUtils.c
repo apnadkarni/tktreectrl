@@ -4696,6 +4696,33 @@ PerStateCO_Free(
 	Tcl_DecrRefCount(objPtr);
 }
 
+Tk_ObjCustomOption *
+PerStateCO_Alloc(
+    CONST char *optionName,
+    PerStateType *typePtr,
+    StateFromObjProc proc
+    )
+{
+    PerStateCOClientData *cd;
+    Tk_ObjCustomOption *co;
+
+    /* ClientData for the Tk custom option record */
+    cd = (PerStateCOClientData *) ckalloc(sizeof(PerStateCOClientData));
+    cd->typePtr = typePtr;
+    cd->proc = proc;
+
+    /* The Tk custom option record */
+    co = (Tk_ObjCustomOption *) ckalloc(sizeof(Tk_ObjCustomOption));
+    co->name = (char *) optionName + 1;
+    co->setProc = PerStateCO_Set;
+    co->getProc = PerStateCO_Get;
+    co->restoreProc = PerStateCO_Restore;
+    co->freeProc = PerStateCO_Free;
+    co->clientData = (ClientData) cd;
+
+    return co;
+}
+
 int
 PerStateCO_Init(
     Tk_OptionSpec *optionTable,
@@ -4704,7 +4731,6 @@ PerStateCO_Init(
     StateFromObjProc proc
     )
 {
-    PerStateCOClientData *cd;
     Tk_ObjCustomOption *co;
     int i;
 
@@ -4715,20 +4741,9 @@ PerStateCO_Init(
 	if (optionTable[i].clientData != NULL)
 	    return TCL_OK;
 
-	/* ClientData for the Tk custom option record */
-	cd = (PerStateCOClientData *) ckalloc(sizeof(PerStateCOClientData));
-	cd->typePtr = typePtr;
-	cd->proc = proc;
-
 	/* The Tk custom option record */
-	co = (Tk_ObjCustomOption *) ckalloc(sizeof(Tk_ObjCustomOption));
-	co->name = (char *) optionName + 1;
-	co->setProc = PerStateCO_Set;
-	co->getProc = PerStateCO_Get;
-	co->restoreProc = PerStateCO_Restore;
-	co->freeProc = PerStateCO_Free;
-	co->clientData = (ClientData) cd;
-
+	co = PerStateCO_Alloc(optionName, typePtr, proc);
+    
 	/* Update the option table */
 	optionTable[i].clientData = (ClientData) co;
 	return TCL_OK;
@@ -4844,7 +4859,6 @@ DynamicCO_Set(
     DynamicOption **firstPtr, *opt;
     DynamicCOSave *save;
     Tcl_Obj **objPtrPtr;
-
 
     /* Get pointer to the head of the list of dynamic options. */
     firstPtr = (DynamicOption **) (recordPtr + internalOffset);
@@ -4964,11 +4978,13 @@ dbwin("DynamicCO_Free id=%d save=%p\n", cd->id, save);
 		    (char *) &save->internalForm);
 	ckfree((char *) save);
     } else {
+	DynamicOption *first = *(DynamicOption **) internalPtr;
+	DynamicOption *opt = DynamicOption_Find(first, cd->id);
 #ifdef DEBUG_DYNAMIC
 dbwin("DynamicCO_Free id=%d save=NULL\n", cd->id);
 #endif
-	if (cd->internalOffset >= 0 && cd->custom->freeProc != NULL)
-	    cd->custom->freeProc(cd->custom->clientData, tkwin, internalPtr);
+	if (opt != NULL && cd->internalOffset >= 0 && cd->custom->freeProc != NULL)
+	    cd->custom->freeProc(cd->custom->clientData, tkwin, opt->data);
     }
 }
 
