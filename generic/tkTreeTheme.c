@@ -951,6 +951,10 @@ TreeCtrlGetLayout(
     TreeCtrl *tree = recordPtr;
     Ttk_Layout treeLayout, newLayout;
 
+    /* This does not get called when resizing/redisplaying the widget. */
+    /* This does get called when the theme changes. */
+    dbwin("TreeCtrlGetLayout %s\n", Tk_PathName(tree->tkwin));
+
     if (tree->headingOptionTable == NULL)
 	tree->headingOptionTable = Tk_CreateOptionTable(interp, HeadingOptionSpecs);
 
@@ -967,6 +971,9 @@ TreeCtrlGetLayout(
 	    eTtk_FreeLayout(tree->headingLayout);
 	tree->headingLayout = newLayout;
     }
+
+    Tree_RelayoutWindow(tree);
+
     return newLayout ? treeLayout : NULL;
 }
 
@@ -978,6 +985,10 @@ TreeCtrlDoLayout(
     TreeCtrl *tree = recordPtr;
     Ttk_LayoutNode *clientNode = eTtk_LayoutFindNode(tree->core.layout, "client");
     Ttk_Box winBox = Ttk_WinBox(tree->tkwin);
+
+    /* This seems to get called for every draw, even when the layout
+     * has not changed. */
+    dbwin("TreeCtrlDoLayout %s\n", Tk_PathName(tree->tkwin));
 
     eTtk_PlaceLayout(tree->core.layout, tree->core.state, winBox);
 
