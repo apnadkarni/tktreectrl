@@ -13,13 +13,14 @@
 #endif
 
 #include "tkTreeCtrl.h"
+#include "ttk/ttk-extra.h"
 
 /* These must agree with tkTreeColumn.c */
 #define COLUMN_STATE_NORMAL 0
 #define COLUMN_STATE_ACTIVE 1
 #define COLUMN_STATE_PRESSED 2
 
-#ifdef WIN32
+#ifdef WIN32xxx
 #include "tkWinInt.h"
 
 #include <uxtheme.h>
@@ -888,7 +889,26 @@ int TreeTheme_Init(Tcl_Interp *interp)
 
 int TreeTheme_DrawHeaderItem(TreeCtrl *tree, Drawable drawable, int state, int arrow, int x, int y, int width, int height)
 {
-    return TCL_ERROR;
+    Ttk_Layout layout = tree->headingLayout;
+    Ttk_State ttk_state = 0;
+    Ttk_Box box;
+
+    if (layout == NULL)
+	return TCL_ERROR;
+
+    box = Ttk_MakeBox(x, y, width, height);
+
+    switch (state)
+    {
+	case COLUMN_STATE_ACTIVE:  ttk_state = TTK_STATE_ACTIVE; break;
+	case COLUMN_STATE_PRESSED: ttk_state = TTK_STATE_PRESSED; break;
+    }
+
+    eTtk_RebindSublayout(layout, NULL); /* !!! rebind to column */
+    eTtk_PlaceLayout(layout, ttk_state, box);
+    eTtk_DrawLayout(layout, ttk_state, drawable);
+
+    return TCL_OK;
 }
 
 int TreeTheme_GetHeaderContentMargins(TreeCtrl *tree, int state, int arrow, int bounds[4])
@@ -916,9 +936,114 @@ int TreeTheme_GetArrowSize(TreeCtrl *tree, Drawable drawable, int up, int *width
     return TCL_ERROR;
 }
 
+static Tk_OptionSpec HeadingOptionSpecs[] =
+{
+    {TK_OPTION_END, 0,0,0, NULL, -1,-1, 0,0,0}
+};
+
+Ttk_Layout
+TreeCtrlGetLayout(
+    Tcl_Interp *interp,
+    Ttk_Theme themePtr,
+    void *recordPtr
+    )
+{
+    TreeCtrl *tree = recordPtr;
+    Ttk_Layout treeLayout, newLayout;
+
+    if (tree->headingOptionTable == NULL)
+	tree->headingOptionTable = Tk_CreateOptionTable(interp, HeadingOptionSpecs);
+
+    /* Create a new layout record based on widget -style or class */
+    treeLayout = Ttk_WidgetGetLayout(interp, themePtr, recordPtr);
+
+    /* Create a sublayout for drawing the column headers. The sublayout is
+     * called "TreeCtrl.Heading" by default. The actual layout specification
+     * was defined by Ttk_RegisterLayout("Heading") below. */
+    newLayout = eTtk_CreateSublayout(interp, themePtr, treeLayout,
+	    ".Heading", tree->headingOptionTable);
+    if (newLayout) {
+	if (tree->headingLayout != NULL)
+	    eTtk_FreeLayout(tree->headingLayout);
+	tree->headingLayout = newLayout;
+    }
+    return newLayout ? treeLayout : NULL;
+}
+
+void
+TreeCtrlDoLayout(
+    void *recordPtr
+    )
+{
+    TreeCtrl *tree = recordPtr;
+    Ttk_LayoutNode *clientNode = eTtk_LayoutFindNode(tree->core.layout, "client");
+    Ttk_Box winBox = Ttk_WinBox(tree->tkwin);
+
+    eTtk_PlaceLayout(tree->core.layout, tree->core.state, winBox);
+
+    if (clientNode != NULL)
+	tree->clientBox = eTtk_LayoutNodeInternalParcel(tree->core.layout,
+		clientNode);
+    else
+	tree->clientBox = winBox;
+}
+
+/* HeaderElement is used for Treeheading.cell. The platform-specific code
+ * will draw the native heading. */
+typedef struct
+{
+    Tcl_Obj *backgroundObj;
+} HeaderElement;
+
+static Ttk_ElementOptionSpec HeaderElementOptions[] =
+{
+    { "-background", TK_OPTION_COLOR,
+	Tk_Offset(HeaderElement, backgroundObj), DEFAULT_BACKGROUND },
+    {NULL}
+};
+
+static void HeaderElementDraw(
+    void *clientData, void *elementRecord, Tk_Window tkwin,
+    Drawable d, Ttk_Box b, Ttk_State state)
+{
+    HeaderElement *e = elementRecord;
+    XColor *color = Tk_GetColorFromObj(tkwin, e->backgroundObj);
+    GC gc = Tk_GCForColor(color, d);
+    XFillRectangle(Tk_Display(tkwin), d, gc,
+	    b.x, b.y, b.width, b.height);
+}
+
+static Ttk_ElementSpec HeaderElementSpec =
+{
+    TK_STYLE_VERSION_2,
+    sizeof(HeaderElement),
+    HeaderElementOptions,
+    Ttk_NullElementGeometry,
+    HeaderElementDraw
+};
+
+TTK_BEGIN_LAYOUT(HeadingLayout)
+    TTK_NODE("Treeheading.cell", TTK_FILL_BOTH)
+    TTK_NODE("Treeheading.border", TTK_FILL_BOTH)
+TTK_END_LAYOUT
+
+TTK_BEGIN_LAYOUT(TreeCtrlLayout)
+    TTK_GROUP("TreeCtrl.field", TTK_FILL_BOTH|TTK_BORDER,
+	TTK_GROUP("TreeCtrl.padding", TTK_FILL_BOTH,
+	    TTK_NODE("TreeCtrl.client", TTK_FILL_BOTH)))
+TTK_END_LAYOUT
+
 int TreeTheme_Init(Tcl_Interp *interp)
 {
-    return TCL_ERROR;
+    Ttk_Theme theme = Ttk_GetDefaultTheme(interp);
+
+    Ttk_RegisterLayout(theme, "TreeCtrl", TreeCtrlLayout);
+
+    /* Uses the Ttk name */
+    Ttk_RegisterElement(interp, theme, "Treeheading.cell", &HeaderElementSpec, 0);
+    Ttk_RegisterLayout(theme, "Heading", HeadingLayout);
+
+    return TCL_OK;
 }
 
 #endif /* !WIN32 && !MAC_OSX_TK */

@@ -120,8 +120,8 @@ if {$::clip} {
 	set textBg $bg
 
 	if {$::tile} {
-		style configure DemoCheckbutton -background $bg
-		style layout DemoCheckbutton [style layout TCheckbutton]
+		ttk::style configure DemoCheckbutton -background $bg
+		ttk::style layout DemoCheckbutton [ttk::style layout TCheckbutton]
 	}
 
 	# History

@@ -58,7 +58,6 @@ if {[catch {
 set tile 0
 set entryCmd ::entry
 catch {
-	package require tile 0.6
 	namespace import -force ::ttk::button ::ttk::checkbutton \
 		ttk::radiobutton
 	# Don't import this, it messes up our edit bindings, and I'm not

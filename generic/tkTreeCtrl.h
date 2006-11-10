@@ -13,6 +13,8 @@
 #include "tkPort.h"
 #include "default.h"
 #include "tkInt.h"
+#include "ttk/ttkTheme.h"
+#include "ttk/ttkWidget.h"
 #include "qebind.h"
 
 #ifdef HAVE_DBWIN_H
@@ -137,12 +139,23 @@ struct TreeCtrlColumnDrag
 
 struct TreeCtrl
 {
+    WidgetCore core;
+
     /* Standard stuff */
     Tk_Window tkwin;
     Display *display;
     Tcl_Interp *interp;
     Tcl_Command widgetCmd;
     Tk_OptionTable optionTable;
+
+    /* Configure hacks */
+    int createFlag;
+    int oldShowRoot;
+
+    /* Ttk */
+    Ttk_Layout headingLayout;
+    Tk_OptionTable headingOptionTable;
+    Ttk_Box clientBox;
 
     /* Configuration options */
     Tcl_Obj *fgObj;		/* -foreground */
@@ -360,22 +373,24 @@ struct TreeCtrl
     int optionHaxCnt;		/* Used by OptionHax_xxx */
 };
 
-#define TREE_CONF_FONT 0x0001
-#define TREE_CONF_ITEMSIZE 0x0002
-#define TREE_CONF_INDENT 0x0004
-#define TREE_CONF_WRAP 0x0008
-#define TREE_CONF_BUTIMG 0x0010
-#define TREE_CONF_BUTBMP 0x0020
+/* !!! Ttk READONLY_OPTION etc conflicts */
+
+#define TREE_CONF_FONT 0x1000
+#define TREE_CONF_ITEMSIZE 0x2000
+#define TREE_CONF_INDENT 0x4000
+#define TREE_CONF_WRAP 0x8000
+#define TREE_CONF_BUTIMG 0x00010000
+#define TREE_CONF_BUTBMP 0x00020000
 /* ... */
-#define TREE_CONF_RELAYOUT 0x0100
-#define TREE_CONF_REDISPLAY 0x0200
-#define TREE_CONF_FG 0x0400
-#define TREE_CONF_PROXY 0x0800
-#define TREE_CONF_BUTTON 0x1000
-#define TREE_CONF_LINE 0x2000
-#define TREE_CONF_DEFSTYLE 0x4000
-#define TREE_CONF_BG_IMAGE 0x8000
-#define TREE_CONF_THEME 0x00010000
+#define TREE_CONF_RELAYOUT 0x00040000
+#define TREE_CONF_REDISPLAY 0x00080000
+#define TREE_CONF_FG 0x00100000
+#define TREE_CONF_PROXY 0x00200000
+#define TREE_CONF_BUTTON 0x00400000
+#define TREE_CONF_LINE 0x00800000
+#define TREE_CONF_DEFSTYLE 0x01000000
+#define TREE_CONF_BG_IMAGE 0x02000000
+#define TREE_CONF_THEME 0x041000000
 
 extern void Tree_AddItem(TreeCtrl *tree, TreeItem item);
 extern void Tree_RemoveItem(TreeCtrl *tree, TreeItem item);
@@ -398,18 +413,29 @@ extern int Tree_StateFromObj(TreeCtrl *tree, Tcl_Obj *obj, int states[3], int *i
 extern int Tree_StateFromListObj(TreeCtrl *tree, Tcl_Obj *obj, int states[3], int flags);
 
 #define Tree_BorderLeft(tree) \
-    tree->inset
+    tree->clientBox.x
 #define Tree_BorderTop(tree) \
-    tree->inset
+    tree->clientBox.y
 #define Tree_BorderRight(tree) \
-    (Tk_Width(tree->tkwin) - tree->inset)
+    (tree->clientBox.x + tree->clientBox.width)
 #define Tree_BorderBottom(tree) \
-    (Tk_Height(tree->tkwin) - tree->inset)
+    (tree->clientBox.y + tree->clientBox.height)
+
+#define Tree_HeaderLeft(tree) \
+    Tree_BorderLeft(tree)
+#define Tree_HeaderTop(tree) \
+    Tree_BorderTop(tree)
+#define Tree_HeaderRight(tree) \
+    Tree_BorderRight(tree)
+#define Tree_HeaderBottom(tree) \
+    (Tree_BorderTop(tree) + Tree_HeaderHeight(tree))
+#define Tree_HeaderWidth(tree) \
+    (Tree_HeaderRight(tree) - Tree_HeaderLeft(tree))
 
 #define Tree_ContentLeft(tree) \
     (Tree_BorderLeft(tree) + Tree_WidthOfLeftColumns(tree))
 #define Tree_ContentTop(tree) \
-    (tree->inset + Tree_HeaderHeight(tree))
+    (Tree_BorderTop(tree) + Tree_HeaderHeight(tree))
 #define Tree_ContentRight(tree) \
     (Tree_BorderRight(tree) - Tree_WidthOfRightColumns(tree))
 #define Tree_ContentBottom(tree) \
@@ -735,6 +761,7 @@ extern int Tree_HitTest(TreeCtrl *tree, int x, int y);
 
 extern void TreeDInfo_Init(TreeCtrl *tree);
 extern void TreeDInfo_Free(TreeCtrl *tree);
+extern void TreeCtrlDisplay(void *recordPtr, Drawable d);
 extern void Tree_EventuallyRedraw(TreeCtrl *tree);
 extern void Tree_GetScrollFractionsX(TreeCtrl *tree, double fractions[2]);
 extern void Tree_GetScrollFractionsY(TreeCtrl *tree, double fractions[2]);

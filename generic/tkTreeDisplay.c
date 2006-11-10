@@ -9,6 +9,7 @@
  */
 
 #include "tkTreeCtrl.h"
+#include "ttk/ttk-extra.h"
 
 #define COMPLEX_WHITESPACE
 
@@ -1900,7 +1901,7 @@ Tree_HitTest(
     if ((y < Tree_BorderTop(tree)) || (y >= Tree_BorderBottom(tree)))
 	return TREE_AREA_NONE;
 
-    if (y < tree->inset + Tree_HeaderHeight(tree)) {
+    if (y < Tree_HeaderBottom(tree)) {
 	return TREE_AREA_HEADER;
     }
     /* Right-locked columns are drawn over the left. */
@@ -5067,7 +5068,7 @@ DisplayDItem(
 /*
  *--------------------------------------------------------------
  *
- * Tree_Display --
+ * TreeCtrlDisplay --
  *
  *	This procedure is called at idle time when something has happened
  *	that might require the list to be redisplayed. An effort is made
@@ -5083,15 +5084,16 @@ DisplayDItem(
  */
 
 void
-Tree_Display(
-    ClientData clientData	/* Widget info. */
+TreeCtrlDisplay(
+    void *recordPtr,		/* Widget info. */
+    Drawable d
     )
 {
-    TreeCtrl *tree = (TreeCtrl *) clientData;
+    TreeCtrl *tree = recordPtr;
     TreeDInfo dInfo = tree->dInfo;
     DItem *dItem;
     Tk_Window tkwin = tree->tkwin;
-    Drawable drawable = Tk_WindowId(tkwin);
+    Drawable drawable = d;
     int minX, minY, maxX, maxY, height, width;
     int count;
     int numCopy = 0, numDraw = 0;
@@ -5373,9 +5375,11 @@ displayRetry:
     TreeDragImage_Undisplay(tree->dragImage);
     TreeMarquee_Undisplay(tree->marquee);
 
+    eTtk_DrawLayout(tree->core.layout, tree->core.state, d);
+
     if (dInfo->flags & DINFO_DRAW_HEADER) {
 	if (Tree_AreaBbox(tree, TREE_AREA_HEADER, &minX, &minY, &maxX, &maxY)) {
-	    Tree_DrawHeader(tree, drawable, 0 - tree->xOrigin, tree->inset);
+	    Tree_DrawHeader(tree, drawable, 0 - tree->xOrigin, Tree_HeaderTop(tree));
 	    if (tree->doubleBuffer == DOUBLEBUFFER_WINDOW) {
 		dInfo->dirty[LEFT] = minX;
 		dInfo->dirty[TOP] = minY;
@@ -5590,15 +5594,16 @@ displayRetry:
 	dbwin("copy %d draw %d %s\n", numCopy, numDraw, Tk_PathName(tkwin));
 
     if (tree->doubleBuffer == DOUBLEBUFFER_WINDOW) {
-	drawable = Tk_WindowId(tkwin);
+	drawable = d;
 
-	if (dInfo->dirty[LEFT] < dInfo->dirty[RIGHT]) {
+	if (1 /* dInfo->dirty[LEFT] < dInfo->dirty[RIGHT] */) {
 	    XCopyArea(tree->display, dInfo->pixmap, drawable,
 		    tree->copyGC,
-		    dInfo->dirty[LEFT], dInfo->dirty[TOP],
-		    dInfo->dirty[RIGHT] - dInfo->dirty[LEFT],
-		    dInfo->dirty[BOTTOM] - dInfo->dirty[TOP],
-		    dInfo->dirty[LEFT], dInfo-> dirty[TOP]);
+		    /* See comment above -doublebuffer option */
+		    Tree_BorderLeft(tree), Tree_BorderTop(tree),
+		    Tree_BorderRight(tree) - Tree_BorderLeft(tree),
+		    Tree_BorderBottom(tree) - Tree_BorderTop(tree),
+		    Tree_BorderLeft(tree), Tree_BorderTop(tree));
 	}
     }
 
@@ -5610,6 +5615,9 @@ displayRetry:
 
     if (tree->doubleBuffer == DOUBLEBUFFER_NONE)
 	dInfo->flags |= DINFO_DRAW_HIGHLIGHT | DINFO_DRAW_BORDER;
+
+    /* Borders are handled by the Ttk style */
+    dInfo->flags &= ~(DINFO_DRAW_HIGHLIGHT | DINFO_DRAW_BORDER);
 
     /* Draw focus rectangle (outside of 3D-border) */
     if ((dInfo->flags & DINFO_DRAW_HIGHLIGHT) && (tree->highlightWidth > 0)) {
@@ -6202,8 +6210,9 @@ Tree_EventuallyRedraw(
 	    !Tk_IsMapped(tree->tkwin)) {
 	return;
     }
+    /* !!! Ttk uses "WidgetCore.flags & REDISPLAY_PENDING" !!! */
     dInfo->flags |= DINFO_REDRAW_PENDING;
-    Tcl_DoWhenIdle(Tree_Display, (ClientData) tree);
+    Ttk_RedisplayWidget(&tree->core);
 }
 
 /*
@@ -6681,7 +6690,7 @@ Tree_InvalidateArea(
     if (x1 >= x2 || y1 >= y2)
 	return;
 
-    if ((y2 > tree->inset) && (y1 < tree->inset + Tree_HeaderHeight(tree)))
+    if ((y2 > Tree_HeaderTop(tree)) && (y1 < Tree_HeaderBottom(tree)))
 	dInfo->flags |= DINFO_DRAW_HEADER;
 
     dItem = dInfo->dItem;
@@ -7014,8 +7023,6 @@ TreeDInfo_Free(
     while (range != NULL)
 	range = Range_Free(tree, range);
     Tk_FreeGC(tree->display, dInfo->scrollGC);
-    if (dInfo->flags & DINFO_REDRAW_PENDING)
-	Tcl_CancelIdleCall(Tree_Display, (ClientData) tree);
     if (dInfo->pixmap != None)
 	Tk_FreePixmap(tree->display, dInfo->pixmap);
     if (dInfo->xScrollIncrements != NULL)
