@@ -921,14 +921,44 @@ int TreeTheme_DrawHeaderArrow(TreeCtrl *tree, Drawable drawable, int up, int x, 
     return TCL_ERROR;
 }
 
+/* From ttkTreeview.c */
+#define TTK_STATE_OPEN TTK_STATE_USER1
+
 int TreeTheme_DrawButton(TreeCtrl *tree, Drawable drawable, int open, int x, int y, int width, int height)
 {
-    return TCL_ERROR;
+    Ttk_Layout layout = tree->buttonLayout;
+    Ttk_State ttk_state = 0;
+    Ttk_Box box;
+
+    if (layout == NULL)
+	return TCL_ERROR;
+
+    box = Ttk_MakeBox(x, y, width, height);
+
+    ttk_state = open ? TTK_STATE_OPEN : 0;
+
+    eTtk_RebindSublayout(layout, NULL); /* !!! rebind to item */
+    eTtk_PlaceLayout(layout, ttk_state, box);
+    eTtk_DrawLayout(layout, ttk_state, drawable);
+
+    return TCL_OK;
 }
 
 int TreeTheme_GetButtonSize(TreeCtrl *tree, Drawable drawable, int open, int *widthPtr, int *heightPtr)
 {
-    return TCL_ERROR;
+    Ttk_Layout layout = tree->buttonLayout;
+    Ttk_State ttk_state = 0;
+
+    if (layout == NULL)
+	return TCL_ERROR;
+
+    ttk_state = open ? TTK_STATE_OPEN : 0;
+
+    eTtk_LayoutSize(layout, ttk_state, widthPtr, heightPtr);
+
+    dbwin("TreeTheme_GetButtonSize %s: w=%d h=%d\n", Tk_PathName(tree->tkwin), *widthPtr, *heightPtr);
+
+    return TCL_OK;
 }
 
 int TreeTheme_GetArrowSize(TreeCtrl *tree, Drawable drawable, int up, int *widthPtr, int *heightPtr)
@@ -936,10 +966,31 @@ int TreeTheme_GetArrowSize(TreeCtrl *tree, Drawable drawable, int up, int *width
     return TCL_ERROR;
 }
 
-static Tk_OptionSpec HeadingOptionSpecs[] =
+static Tk_OptionSpec NullOptionSpecs[] =
 {
     {TK_OPTION_END, 0,0,0, NULL, -1,-1, 0,0,0}
 };
+
+/* from ttkTreeview.c */
+static Ttk_Layout
+GetSublayout(
+    Tcl_Interp *interp,
+    Ttk_Theme themePtr,
+    Ttk_Layout parentLayout,
+    const char *layoutName,
+    Tk_OptionTable optionTable,
+    Ttk_Layout *layoutPtr)
+{
+    Ttk_Layout newLayout = eTtk_CreateSublayout(
+	    interp, themePtr, parentLayout, layoutName, optionTable);
+
+    if (newLayout) {
+	if (*layoutPtr)
+	    eTtk_FreeLayout(*layoutPtr);
+	*layoutPtr = newLayout;
+    }
+    return newLayout;
+}
 
 Ttk_Layout
 TreeCtrlGetLayout(
@@ -956,25 +1007,31 @@ TreeCtrlGetLayout(
     dbwin("TreeCtrlGetLayout %s\n", Tk_PathName(tree->tkwin));
 
     if (tree->headingOptionTable == NULL)
-	tree->headingOptionTable = Tk_CreateOptionTable(interp, HeadingOptionSpecs);
+	tree->headingOptionTable = Tk_CreateOptionTable(interp, NullOptionSpecs);
+    if (tree->buttonOptionTable == NULL)
+	tree->buttonOptionTable = Tk_CreateOptionTable(interp, NullOptionSpecs);
 
     /* Create a new layout record based on widget -style or class */
     treeLayout = Ttk_WidgetGetLayout(interp, themePtr, recordPtr);
 
     /* Create a sublayout for drawing the column headers. The sublayout is
-     * called "TreeCtrl.Heading" by default. The actual layout specification
-     * was defined by Ttk_RegisterLayout("Heading") below. */
-    newLayout = eTtk_CreateSublayout(interp, themePtr, treeLayout,
-	    ".Heading", tree->headingOptionTable);
-    if (newLayout) {
-	if (tree->headingLayout != NULL)
-	    eTtk_FreeLayout(tree->headingLayout);
-	tree->headingLayout = newLayout;
-    }
+     * called "TreeCtrl.TreeCtrlHeading" by default. The actual layout specification
+     * was defined by Ttk_RegisterLayout("TreeCtrlHeading") below. */
+    newLayout = GetSublayout(interp, themePtr, treeLayout,
+	    ".TreeCtrlHeading", tree->headingOptionTable,
+	    &tree->headingLayout);
+    if (newLayout == NULL)
+	return NULL;
+
+    newLayout = GetSublayout(interp, themePtr, treeLayout,
+	    ".TreeCtrlButton", tree->buttonOptionTable,
+	    &tree->buttonLayout);
+    if (newLayout == NULL)
+	return NULL;
 
     Tree_RelayoutWindow(tree);
 
-    return newLayout ? treeLayout : NULL;
+    return treeLayout;
 }
 
 void
@@ -1038,6 +1095,10 @@ TTK_BEGIN_LAYOUT(HeadingLayout)
     TTK_NODE("Treeheading.border", TTK_FILL_BOTH)
 TTK_END_LAYOUT
 
+TTK_BEGIN_LAYOUT(ButtonLayout)
+    TTK_NODE("Treeitem.indicator", TTK_PACK_LEFT)
+TTK_END_LAYOUT
+
 TTK_BEGIN_LAYOUT(TreeCtrlLayout)
     TTK_GROUP("TreeCtrl.field", TTK_FILL_BOTH|TTK_BORDER,
 	TTK_GROUP("TreeCtrl.padding", TTK_FILL_BOTH,
@@ -1052,7 +1113,9 @@ int TreeTheme_Init(Tcl_Interp *interp)
 
     /* Uses the Ttk name */
     Ttk_RegisterElement(interp, theme, "Treeheading.cell", &HeaderElementSpec, 0);
-    Ttk_RegisterLayout(theme, "Heading", HeadingLayout);
+
+    Ttk_RegisterLayout(theme, "TreeCtrlHeading", HeadingLayout);
+    Ttk_RegisterLayout(theme, "TreeCtrlButton", ButtonLayout);
 
     return TCL_OK;
 }

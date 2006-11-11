@@ -153,7 +153,9 @@ struct TreeCtrl
     int oldShowRoot;
 
     /* Ttk */
+    Ttk_Layout buttonLayout;
     Ttk_Layout headingLayout;
+    Tk_OptionTable buttonOptionTable;
     Tk_OptionTable headingOptionTable;
     Ttk_Box clientBox;
 
