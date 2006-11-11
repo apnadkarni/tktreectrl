@@ -4,7 +4,7 @@
 
 set VERSION 2.1.1
 
-package require Tk 8.4
+package require Tk 8.5
 
 set thisPlatform $::tcl_platform(platform)
 if {$thisPlatform eq "unix" && [tk windowingsystem] eq "aqua"} {
@@ -58,13 +58,13 @@ if {[catch {
 set tile 0
 set entryCmd ::entry
 catch {
-	namespace import -force ::ttk::button ::ttk::checkbutton \
-		ttk::radiobutton
-	# Don't import this, it messes up our edit bindings, and I'm not
-	# sure how to get/set the equivalent -borderwidth, -selectborderwidth
-	# etc options of a TEntry.
-	set ::entryCmd ::ttk::entry
-	set tile 1
+    namespace import -force ::ttk::button ::ttk::checkbutton \
+	    ttk::radiobutton
+    # Don't import this, it messes up our edit bindings, and I'm not
+    # sure how to get/set the equivalent -borderwidth, -selectborderwidth
+    # etc options of a TEntry.
+    set ::entryCmd ::ttk::entry
+    set tile 1
 }
 
 # This gets called if 'package require' won't work during development.
@@ -135,9 +135,9 @@ foreach list [info loaded] {
     break
 }
 if {[info exists env(TREECTRL_LIBRARY)]} {
-	puts "demo.tcl: TREECTRL_LIBRARY=$env(TREECTRL_LIBRARY)"
+    puts "demo.tcl: TREECTRL_LIBRARY=$env(TREECTRL_LIBRARY)"
 } else {
-	puts "demo.tcl: TREECTRL_LIBRARY undefined"
+    puts "demo.tcl: TREECTRL_LIBRARY undefined"
 }
 puts "demo.tcl: treectrl_library=$treectrl_library"
 
@@ -218,8 +218,17 @@ proc MakeMenuBar {} {
     $m2 add command -label "Style Editor" -command ToggleStyleEditorWindow
     $m2 add command -label "View Source" -command ToggleSourceWindow
     $m2 add command -label "Magnifier" -command ToggleLoupeWindow
-    $m2 add command -label Quit -command exit
-    $m add cascade -label File -menu $m2
+    $m2 add command -label "Quit" -command exit
+    $m add cascade -label "File" -menu $m2
+
+    set m2 [menu $m.mTheme -tearoff no]
+    $m add cascade -label "Theme" -menu $m2
+    foreach theme [lsort -dictionary [ttk::style theme names]] {
+	$m2 add command -label $theme -command [list ttk::setTheme $theme]
+    }
+    $m2 add separator
+    $m2 add command -label "Inspector" -command ToggleThemeWindow
+    
     return
 }
 
@@ -510,8 +519,120 @@ proc ToggleStyleEditorWindow {} {
     return
 }
 
+proc MakeThemeWindow {} {
+    set w [toplevel .theme]
+    wm withdraw $w
+#    wm transient $w .
+    wm title $w "TkTreeCtrl Themes"
+
+    set m [menu $w.menubar]
+    $w configure -menu $m
+    set m1 [menu $m.m1 -tearoff 0]
+    $m1 add command -label "Set List" -command SetThemeWindow
+    $m add cascade -label "Theme" -menu $m1
+
+    TreePlusScrollbarsInAFrame $w.f 1 1
+    pack $w.f -expand yes -fill both
+
+    set T $w.f.t
+
+    $T configure -showheader no -showroot no -showrootlines no -height 300
+    $T column create -tags C0
+    $T configure -treecolumn C0
+
+    $T element create e1 text -fill [list $::SystemHighlightText {selected focus}]
+    $T element create e3 rect -fill [list $::SystemHighlight {selected focus} gray {selected !focus}] \
+	-showfocus yes
+
+    set S [$T style create s1]
+    $T style elements $S {e3 e1}
+    $T style layout $S e3 -union [list e1] -ipadx 1 -ipady {0 1}
+
+    $T column configure C0 -itemstyle s1
+
+    SetThemeWindow
+
+    wm protocol $w WM_DELETE_WINDOW "ToggleThemeWindow"
+
+    return
+}
+proc ToggleThemeWindow {} {
+    set w .theme
+    if {![winfo exists $w]} {
+	MakeThemeWindow
+    }
+    if {[winfo ismapped $w]} {
+	wm withdraw $w
+    } else {
+	wm deiconify $w
+    }
+    return
+}
+proc SetThemeWindow {} {
+    set w .theme
+    set T $w.f.t
+
+    $T item delete all
+    #
+    # Themes
+    #
+    foreach theme [lsort -dictionary [ttk::style theme names]] {
+	set I [$T item create -button yes -open no -tags theme -parent root]
+	$T item text $I C0 $theme
+	ttk::style theme settings $theme {
+	    set I2 [$T item create -button yes -open no -parent $I]
+	    $T item text $I2 C0 ELEMENTS
+	    #
+	    # Elements
+	    #
+	    foreach element [lsort -dictionary [ttk::style element names]] {
+		#
+		# Element options
+		#
+		set options [ttk::style element options $element]
+		set I3 [$T item create -button [llength $options] -open no -tags element -parent $I2]
+		$T item text $I3 C0 $element
+		foreach option [lsort -dictionary $options] {
+		    set I4 [$T item create -open no -tags {element option} -parent $I3]
+		    $T item text $I4 C0 $option
+		}
+	    }
+	    #
+	    # Styles
+	    #
+	    set I2 [$T item create -button yes -open no -parent $I]
+	    $T item text $I2 C0 STYLES
+	    set styles [list "."] ; # [ttk::style names] please!
+	    foreach style [lsort -dictionary $styles] {
+		#
+		# Style options
+		#
+		set cfg [ttk::style configure $style]
+		set I3 [$T item create -button [llength $cfg] -open no -tags style -parent $I2]
+		$T item text $I3 C0 $style
+		foreach {option value} $cfg {
+		    set I4 [$T item create -open no -tags {style option} -parent $I3]
+		    $T item text $I4 C0 "$option $value"
+		}
+	    }
+	}
+    }
+    return
+}
+
 MakeSourceWindow
 MakeMenuBar
+
+# http://wiki.tcl.tk/950
+proc sbset {sb first last} {
+    if {$first <= 0 && $last >= 1} {
+	grid remove $sb
+    } else {
+	grid $sb
+    }
+    $sb set $first $last
+    return
+}
 
 proc TreePlusScrollbarsInAFrame {f h v} {
     frame $f -borderwidth 1 -relief sunken
@@ -537,13 +658,13 @@ proc TreePlusScrollbarsInAFrame {f h v} {
     if {$h} {
 	scrollbar $f.sh -orient horizontal -command "$f.t xview"
 	#		$f.t configure -xscrollcommand "$f.sh set"
-	$f.t notify bind $f.sh <Scroll-x> { %W set %l %u }
+	$f.t notify bind $f.sh <Scroll-x> { sbset %W %l %u }
 	bind $f.sh <ButtonPress-1> "focus $f.t"
     }
     if {$v} {
 	scrollbar $f.sv -orient vertical -command "$f.t yview"
 	#		$f.t configure -yscrollcommand "$f.sv set"
-	$f.t notify bind $f.sv <Scroll-y> { %W set %l %u }
+	$f.t notify bind $f.sv <Scroll-y> { sbset %W %l %u }
 	bind $f.sv <ButtonPress-1> "focus $f.t"
     }
     grid columnconfigure $f 0 -weight 1
@@ -607,19 +728,19 @@ proc MakeMainWindow {} {
     panedwindow .pw1 -orient vertical -borderwidth 0
 
     # Tree + scrollbar: demos
-    TreePlusScrollbarsInAFrame .f1 0 1
+    TreePlusScrollbarsInAFrame .f1 1 1
     .f1.t configure -showbuttons no -showlines no -showroot no -height 100
     .f1.t column create -text "List of Demos" -expand yes -button no -tags C0
     .f1.t configure -treecolumn C0
 
     # Tree + scrollbar: styles + elements in list
-    TreePlusScrollbarsInAFrame .f4 0 1
+    TreePlusScrollbarsInAFrame .f4 1 1
     .f4.t configure -showlines $::ShowLines -showroot no -height 140
     .f4.t column create -text "Elements and Styles" -expand yes -button no -tags C0
     .f4.t configure -treecolumn C0
 
     # Tree + scrollbar: styles + elements in selected item
-    TreePlusScrollbarsInAFrame .f3 0 1
+    TreePlusScrollbarsInAFrame .f3 1 1
     .f3.t configure -showlines $::ShowLines -showroot no
     .f3.t column create -text "Styles in Item" -expand yes -button no -tags C0
     .f3.t configure -treecolumn C0
