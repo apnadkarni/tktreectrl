@@ -1447,3 +1447,14 @@ proc ::TreeCtrl::PercentsCmd {T char object event detail charMap} {
     }
     return
 }
+
+namespace eval TreeCtrl {
+    foreach theme [ttk::style theme names] {
+	ttk::style theme settings $theme {
+	    ttk::style configure TreeCtrlHeading -relief raised -font TkHeadingFont
+	    ttk::style map TreeCtrlHeading -relief {
+		pressed sunken
+	    }
+	}
+    }
+}
