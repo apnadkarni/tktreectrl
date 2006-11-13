@@ -56,14 +56,22 @@ if {[catch {
 }
 
 set tile 1
-# Don't import ::ttk::entry, it messes up the edit bindings, and I'm not
-# sure how to get/set the equivalent -borderwidth, -selectborderwidth
-# etc options of a TEntry.
-set entryCmd ::ttk::entry
-set buttonCmd ::ttk::button
-set checkbuttonCmd ::ttk::checkbutton
-set radiobuttonCmd ttk::radiobutton
-set scrollbarCmd ::ttk::scrollbar
+if {$tile} {
+    # Don't import ttk::entry, it messes up the edit bindings, and I'm not
+    # sure how to get/set the equivalent -borderwidth, -selectborderwidth
+    # etc options of a TEntry.
+    set entryCmd ::ttk::entry
+    set buttonCmd ::ttk::button
+    set checkbuttonCmd ::ttk::checkbutton
+    set radiobuttonCmd ttk::radiobutton
+    set scrollbarCmd ::ttk::scrollbar
+} else {
+    set entryCmd ::entry
+    set buttonCmd ::button
+    set checkbuttonCmd ::checkbutton
+    set radiobuttonCmd ::radiobutton
+    set scrollbarCmd ::scrollbar
+}
 
 # This gets called if 'package require' won't work during development.
 proc LoadSharedLibrary {} {
@@ -219,14 +227,16 @@ proc MakeMenuBar {} {
     $m2 add command -label "Quit" -command exit
     $m add cascade -label "File" -menu $m2
 
-    set m2 [menu $m.mTheme -tearoff no]
-    $m add cascade -label "Theme" -menu $m2
-    foreach theme [lsort -dictionary [ttk::style theme names]] {
-	$m2 add radiobutton -label $theme -command [list ttk::setTheme $theme] \
-	    -variable ::DemoTheme -value $theme
+	if {$::tile} {
+	    set m2 [menu $m.mTheme -tearoff no]
+	    $m add cascade -label "Theme" -menu $m2
+	    foreach theme [lsort -dictionary [ttk::style theme names]] {
+		$m2 add radiobutton -label $theme -command [list ttk::setTheme $theme] \
+		    -variable ::DemoTheme -value $theme
+	    }
+	    $m2 add separator
+	    $m2 add command -label "Inspector" -command ToggleThemeWindow
     }
-    $m2 add separator
-    $m2 add command -label "Inspector" -command ToggleThemeWindow
     
     return
 }
@@ -634,7 +644,11 @@ proc sbset {sb first last} {
 }
 
 proc TreePlusScrollbarsInAFrame {f h v} {
-    frame $f -borderwidth 0
+	if {$::tile} {
+	    frame $f -borderwidth 0
+	} else {
+		frame $f -borderwidth 1 -relief sunken
+    }
     switch -- $::thisPlatform {
 	macintosh {
 	    set font {Geneva 9}
@@ -1382,8 +1396,8 @@ proc DemoClear {} {
 	-background white -scrollmargin 0 -xscrolldelay 50 -yscrolldelay 50 \
 	-buttonbitmap "" -buttonimage "" -backgroundmode row \
 	-indent 19 -defaultstyle {} -backgroundimage "" \
-	-showrootlines yes -minitemheight 0 -borderwidth 0 \
-	-highlightthickness 0 -usetheme yes -cursor {} \
+	-showrootlines yes -minitemheight 0 -borderwidth [expr {$::tile ? 0 : 6}] \
+	-highlightthickness [expr {$::tile ? 0 : 3}] -usetheme yes -cursor {} \
 	-itemwidth 0 -itemwidthequal no -itemwidthmultiple 0 \
 	-font [.f4.t cget -font]
 

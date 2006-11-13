@@ -126,19 +126,17 @@ if {$::clip} {
 	set BigList(nextWindowId) 0
 	set BigList(prev) ""
 
-	# Create a new window just to get the requested size. This will be the
-	# value of the item -height option for some items.
-	set w [BigListNewWindow $T root]
-	update idletasks
-if {$::clip} {
-	set height [winfo reqheight [lindex [winfo children $w] 0]]
-} else {
-	set height [winfo reqheight $w]
-}
-	# Add 1 pixel for the border
-	incr height
-	set BigList(windowHeight) $height
-	BigListFreeWindow $T $w
+	BigListGetWindowHeight $T
+	if {$::tile} {
+		bind DemoBigList <<ThemeChanged>> {
+			after 100 {
+			BigListGetWindowHeight .f2.f1.t
+			if {[.f2.f1.t item id {first tag info}] ne ""} {
+				.f2.f1.t item conf {tag info} -height $BigList(windowHeight)
+			}
+			}
+		}
+	}
 
 	bind DemoBigList <Double-ButtonPress-1> {
 		if {[lindex [%W identify %x %y] 0] eq "header"} {
@@ -164,6 +162,24 @@ if {$::clip} {
 
 	bindtags $T [list $T DemoBigList TreeCtrl [winfo toplevel $T] all]
 
+	return
+}
+
+proc BigListGetWindowHeight {T} {
+	global BigList
+	# Create a new window just to get the requested size. This will be the
+	# value of the item -height option for some items.
+	set w [BigListNewWindow $T root]
+	update idletasks
+if {$::clip} {
+	set height [winfo reqheight [lindex [winfo children $w] 0]]
+} else {
+	set height [winfo reqheight $w]
+}
+	# Add 1 pixel for the border
+	incr height
+	set BigList(windowHeight) $height
+	BigListFreeWindow $T $w
 	return
 }
 
