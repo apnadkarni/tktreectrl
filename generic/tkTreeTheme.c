@@ -946,18 +946,12 @@ int TreeTheme_DrawButton(TreeCtrl *tree, Drawable drawable, int open, int x, int
 
 int TreeTheme_GetButtonSize(TreeCtrl *tree, Drawable drawable, int open, int *widthPtr, int *heightPtr)
 {
-    Ttk_Layout layout = tree->buttonLayout;
-    Ttk_State ttk_state = 0;
-
-    if (layout == NULL)
+    if (tree->buttonLayout == NULL)
 	return TCL_ERROR;
 
-    ttk_state = open ? TTK_STATE_OPEN : 0;
-
-    eTtk_LayoutSize(layout, ttk_state, widthPtr, heightPtr);
-
-    dbwin("TreeTheme_GetButtonSize %s: w=%d h=%d\n", Tk_PathName(tree->tkwin), *widthPtr, *heightPtr);
-
+    open = open ? 1 : 0;
+    *widthPtr = tree->themeButtonWidth[open];
+    *heightPtr = tree->themeButtonHeight[open];
     return TCL_OK;
 }
 
@@ -1012,7 +1006,8 @@ TreeCtrlGetLayout(
 	tree->buttonOptionTable = Tk_CreateOptionTable(interp, NullOptionSpecs);
 
     /* Create a new layout record based on widget -style or class */
-    treeLayout = Ttk_WidgetGetLayout(interp, themePtr, recordPtr);
+    treeLayout = eTtk_CreateLayout(interp, themePtr, "TreeCtrl", tree,
+	    tree->optionTable, tree->tkwin);
 
     /* Create a sublayout for drawing the column headers. The sublayout is
      * called "TreeCtrl.TreeCtrlHeading" by default. The actual layout specification
@@ -1029,7 +1024,15 @@ TreeCtrlGetLayout(
     if (newLayout == NULL)
 	return NULL;
 
-    Tree_RelayoutWindow(tree);
+    /* Size of opened and closed buttons. */
+    eTtk_LayoutSize(tree->buttonLayout, TTK_STATE_OPEN,
+	    &tree->themeButtonWidth[1], &tree->themeButtonHeight[1]);
+    eTtk_LayoutSize(tree->buttonLayout, 0,
+	    &tree->themeButtonWidth[0], &tree->themeButtonHeight[0]);
+    dbwin("TreeCtrlGetLayout %s: button size open w=%d h=%d closed w=%d h=%d\n",
+	    Tk_PathName(tree->tkwin),
+	    tree->themeButtonWidth[1], tree->themeButtonHeight[1],
+	    tree->themeButtonWidth[0], tree->themeButtonHeight[0]);
 
     return treeLayout;
 }
@@ -1040,20 +1043,153 @@ TreeCtrlDoLayout(
     )
 {
     TreeCtrl *tree = recordPtr;
-    Ttk_LayoutNode *clientNode = eTtk_LayoutFindNode(tree->core.layout, "client");
+    Ttk_LayoutNode *clientNode = eTtk_LayoutFindNode(tree->layout, "client");
     Ttk_Box winBox = Ttk_WinBox(tree->tkwin);
+    Ttk_State state = 0; /* ??? */
 
     /* This seems to get called for every draw, even when the layout
      * has not changed. */
     dbwin("TreeCtrlDoLayout %s\n", Tk_PathName(tree->tkwin));
 
-    eTtk_PlaceLayout(tree->core.layout, tree->core.state, winBox);
+    eTtk_PlaceLayout(tree->layout, state, winBox);
 
     if (clientNode != NULL)
-	tree->clientBox = eTtk_LayoutNodeInternalParcel(tree->core.layout,
+	tree->clientBox = eTtk_LayoutNodeInternalParcel(tree->layout,
 		clientNode);
     else
 	tree->clientBox = winBox;
+}
+
+void
+TreeTheme_Relayout(
+    TreeCtrl *tree
+    )
+{
+    Ttk_Theme themePtr = Ttk_GetCurrentTheme(tree->interp);
+    Ttk_Layout newLayout = TreeCtrlGetLayout(tree->interp, themePtr, tree);
+
+    /* FIXME: free layout when tree destroyed */
+
+    if (newLayout) {
+	if (tree->layout) {
+	    eTtk_FreeLayout(tree->layout);
+	}
+	tree->layout = newLayout;
+	TreeCtrlDoLayout(tree);
+    }
+}
+
+/*
+ * This routine is a big hack so that the "field" element (of the TreeCtrl
+ * layout) doesn't erase the entire background of the window. This routine
+ * draws each edge of the layout into a pixmap and copies the pixmap to the
+ * window.
+ */
+void
+TreeTheme_DrawBorders(
+    TreeCtrl *tree,
+    Drawable drawable
+    )
+{
+    Tk_Window tkwin = tree->tkwin;
+    Ttk_Box clientBox = tree->clientBox;
+    Ttk_Box winBox = Ttk_WinBox(tree->tkwin);
+    Ttk_State state = 0; /* ??? */
+    int left, top, right, bottom;
+    Drawable pixmapLR = None, pixmapTB = None;
+
+    left = clientBox.x;
+    top = clientBox.y;
+    right = Tk_Width(tkwin) - (clientBox.x + clientBox.width);
+    bottom = Tk_Height(tkwin) - (clientBox.y + clientBox.height);
+
+    /* If the Ttk layout doesn't specify any borders or padding, then
+     * draw nothing. */
+    if (left < 1 && top < 1 && right < 1 && bottom < 1)
+	return;
+
+    if (left > 0 || top > 0)
+	eTtk_PlaceLayout(tree->layout, state, winBox);
+
+    if (left > 0 || right > 0) {
+	pixmapLR = Tk_GetPixmap(tree->display, Tk_WindowId(tkwin),
+		MAX(left, right), Tk_Height(tkwin), Tk_Depth(tkwin));
+    }
+
+    if (top > 0 || bottom > 0) {
+	pixmapTB = Tk_GetPixmap(tree->display, Tk_WindowId(tkwin),
+		Tk_Width(tkwin), MAX(top, bottom), Tk_Depth(tkwin));
+    }
+
+    if (tree->debug.enable && tree->debug.display && tree->debug.drawColor) {
+	if (left > 0) {
+	    XFillRectangle(tree->display, Tk_WindowId(tkwin),
+		    tree->debug.gcDraw, 0, 0, left, Tk_Height(tkwin));
+	}
+	if (top > 0) {
+	    XFillRectangle(tree->display, Tk_WindowId(tkwin),
+		    tree->debug.gcDraw, 0, 0, Tk_Width(tkwin), top);
+	}
+	if (right > 0) {
+	    XFillRectangle(tree->display, Tk_WindowId(tkwin),
+		    tree->debug.gcDraw, clientBox.x + clientBox.width, 0, right, Tk_Height(tkwin));
+	}
+	if (bottom > 0) {
+	    XFillRectangle(tree->display, Tk_WindowId(tkwin),
+		    tree->debug.gcDraw, 0, clientBox.y + clientBox.height, Tk_Width(tkwin), bottom);
+	}
+	/* DisplayDelay */
+	if (tree->debug.displayDelay > 0) {
+#if !defined(WIN32) && !defined(MAC_TCL) && !defined(MAC_OSX_TK)
+	    XSync(tree->display, False);
+#endif
+	    Tcl_Sleep(tree->debug.displayDelay);
+	}
+    }
+
+    if (left > 0) {
+	eTtk_DrawLayout(tree->layout, state, pixmapLR);
+	XCopyArea(tree->display, pixmapLR, drawable,
+		tree->copyGC, 0, 0,
+		left, Tk_Height(tkwin),
+		0, 0);
+    }
+
+    if (top > 0) {
+	eTtk_DrawLayout(tree->layout, state, pixmapTB);
+	XCopyArea(tree->display, pixmapTB, drawable,
+		tree->copyGC, 0, 0,
+		Tk_Width(tkwin), top,
+		0, 0);
+    }
+
+    if (right > 0) {
+	winBox.x -= winBox.width - right;
+	eTtk_PlaceLayout(tree->layout, state, winBox);
+
+	eTtk_DrawLayout(tree->layout, state, pixmapLR);
+	XCopyArea(tree->display, pixmapLR, drawable,
+		tree->copyGC, 0, 0,
+		right, Tk_Height(tkwin),
+		clientBox.x + clientBox.width, 0);
+    }
+
+    if (bottom > 0) {
+	winBox.x = 0;
+	winBox.y -= winBox.height - bottom;
+	eTtk_PlaceLayout(tree->layout, state, winBox);
+
+	eTtk_DrawLayout(tree->layout, state, pixmapTB);
+	XCopyArea(tree->display, pixmapTB, drawable,
+		tree->copyGC, 0, 0,
+		Tk_Width(tkwin), bottom,
+		0, clientBox.y + clientBox.height);
+    }
+
+    if (pixmapLR != None)
+	Tk_FreePixmap(tree->display, pixmapLR);
+    if (pixmapTB != None)
+	Tk_FreePixmap(tree->display, pixmapTB);
 }
 
 /* HeaderElement is used for Treeheading.cell. The platform-specific code
@@ -1090,6 +1226,116 @@ static Ttk_ElementSpec HeaderElementSpec =
     HeaderElementDraw
 };
 
+/* Default button element (aka Treeitem.indicator). */
+typedef struct
+{
+    Tcl_Obj *backgroundObj;
+    Tcl_Obj *colorObj;
+    Tcl_Obj *sizeObj;
+    Tcl_Obj *thicknessObj;
+} TreeitemIndicator;
+
+static Ttk_ElementOptionSpec TreeitemIndicatorOptions[] =
+{
+    { "-buttonbackground", TK_OPTION_COLOR,
+	Tk_Offset(TreeitemIndicator, backgroundObj), "white" },
+    { "-buttoncolor", TK_OPTION_COLOR,
+	Tk_Offset(TreeitemIndicator, colorObj), "#808080" },
+    { "-buttonsize", TK_OPTION_PIXELS,
+	Tk_Offset(TreeitemIndicator, sizeObj), "9" },
+    { "-buttonthickness", TK_OPTION_PIXELS,
+	Tk_Offset(TreeitemIndicator, thicknessObj), "1" },
+    {NULL}
+};
+
+static void TreeitemIndicatorSize(
+    void *clientData, void *elementRecord, Tk_Window tkwin,
+    int *widthPtr, int *heightPtr, Ttk_Padding *paddingPtr)
+{
+    TreeitemIndicator *indicator = elementRecord;
+    int size = 0;
+
+    Tk_GetPixelsFromObj(NULL, tkwin, indicator->sizeObj, &size);
+
+    *widthPtr = *heightPtr = size;
+}
+
+static void TreeitemIndicatorDraw(
+    void *clientData, void *elementRecord, Tk_Window tkwin,
+    Drawable d, Ttk_Box b, Ttk_State state)
+{
+    TreeitemIndicator *indicator = elementRecord;
+    int w1, lineLeft, lineTop, buttonLeft, buttonTop, buttonThickness, buttonSize;
+    XColor *bgColor = Tk_GetColorFromObj(tkwin, indicator->backgroundObj);
+    XColor *buttonColor = Tk_GetColorFromObj(tkwin, indicator->colorObj);
+    XGCValues gcValues;
+    unsigned long gcMask;
+    GC buttonGC;
+
+    Tk_GetPixelsFromObj(NULL, tkwin, indicator->sizeObj, &buttonSize);
+    Tk_GetPixelsFromObj(NULL, tkwin, indicator->thicknessObj, &buttonThickness);
+
+    w1 = buttonThickness / 2;
+
+    /* Left edge of vertical line */
+    /* Make sure this matches TreeItem_DrawLines() */
+    lineLeft = b.x + (b.width - buttonThickness) / 2;
+
+    /* Top edge of horizontal line */
+    /* Make sure this matches TreeItem_DrawLines() */
+    lineTop = b.y + (b.height - buttonThickness) / 2;
+
+    buttonLeft = b.x;
+    buttonTop = b.y;
+
+    /* Erase button background */
+    XFillRectangle(Tk_Display(tkwin), d,
+	    Tk_GCForColor(bgColor, d),
+	    buttonLeft + buttonThickness,
+	    buttonTop + buttonThickness,
+	    buttonSize - buttonThickness,
+	    buttonSize - buttonThickness);
+
+    gcValues.foreground = buttonColor->pixel;
+    gcValues.line_width = buttonThickness;
+    gcMask = GCForeground | GCLineWidth;
+    buttonGC = Tk_GetGC(tkwin, gcMask, &gcValues);
+
+    /* Draw button outline */
+    XDrawRectangle(Tk_Display(tkwin), d, buttonGC,
+	    buttonLeft + w1,
+	    buttonTop + w1,
+	    buttonSize - buttonThickness,
+	    buttonSize - buttonThickness);
+
+    /* Horizontal '-' */
+    XFillRectangle(Tk_Display(tkwin), d, buttonGC,
+	    buttonLeft + buttonThickness * 2,
+	    lineTop,
+	    buttonSize - buttonThickness * 4,
+	    buttonThickness);
+
+    if (!(state & TTK_STATE_OPEN)) {
+	/* Finish '+' */
+	XFillRectangle(Tk_Display(tkwin), d, buttonGC,
+		lineLeft,
+		buttonTop + buttonThickness * 2,
+		buttonThickness,
+		buttonSize - buttonThickness * 4);
+    }
+
+    Tk_FreeGC(Tk_Display(tkwin), buttonGC);
+}
+
+static Ttk_ElementSpec TreeitemIndicatorElementSpec =
+{
+    TK_STYLE_VERSION_2,
+    sizeof(TreeitemIndicator),
+    TreeitemIndicatorOptions,
+    TreeitemIndicatorSize,
+    TreeitemIndicatorDraw
+};
+
 TTK_BEGIN_LAYOUT(HeadingLayout)
     TTK_NODE("Treeheading.cell", TTK_FILL_BOTH)
     TTK_NODE("Treeheading.border", TTK_FILL_BOTH)
@@ -1111,8 +1357,11 @@ int TreeTheme_Init(Tcl_Interp *interp)
 
     Ttk_RegisterLayout(theme, "TreeCtrl", TreeCtrlLayout);
 
-    /* Uses the Ttk name */
+    /* Problem: what if Treeview also defines this? */
     Ttk_RegisterElement(interp, theme, "Treeheading.cell", &HeaderElementSpec, 0);
+
+    /* Problem: what if Treeview also defines this? */
+    Ttk_RegisterElement(interp, theme, "Treeitem.indicator", &TreeitemIndicatorElementSpec, 0);
 
     Ttk_RegisterLayout(theme, "TreeCtrlHeading", HeadingLayout);
     Ttk_RegisterLayout(theme, "TreeCtrlButton", ButtonLayout);

@@ -139,8 +139,6 @@ struct TreeCtrlColumnDrag
 
 struct TreeCtrl
 {
-    WidgetCore core;
-
     /* Standard stuff */
     Tk_Window tkwin;
     Display *display;
@@ -148,16 +146,14 @@ struct TreeCtrl
     Tcl_Command widgetCmd;
     Tk_OptionTable optionTable;
 
-    /* Configure hacks */
-    int createFlag;
-    int oldShowRoot;
-
     /* Ttk */
+    Ttk_Layout layout;
     Ttk_Layout buttonLayout;
     Ttk_Layout headingLayout;
     Tk_OptionTable buttonOptionTable;
     Tk_OptionTable headingOptionTable;
     Ttk_Box clientBox;
+    int themeButtonWidth[2], themeButtonHeight[2];
 
     /* Configuration options */
     Tcl_Obj *fgObj;		/* -foreground */
@@ -177,7 +173,7 @@ struct TreeCtrl
     Tcl_Obj *yScrollDelay;	/* -yscrolldelay: used by scripts */
     int xScrollIncrement;	/* -xscrollincrement */
     int yScrollIncrement;	/* -yscrollincrement */
-    Tcl_Obj *scrollMargin;		/* -scrollmargin: used by scripts */
+    Tcl_Obj *scrollMargin;	/* -scrollmargin: used by scripts */
     char *takeFocus;		/* -takfocus */
     Tcl_Obj *fontObj;		/* -font */
     Tk_Font tkfont;		/* -font */
@@ -375,24 +371,22 @@ struct TreeCtrl
     int optionHaxCnt;		/* Used by OptionHax_xxx */
 };
 
-/* !!! Ttk READONLY_OPTION etc conflicts */
-
-#define TREE_CONF_FONT 0x1000
-#define TREE_CONF_ITEMSIZE 0x2000
-#define TREE_CONF_INDENT 0x4000
-#define TREE_CONF_WRAP 0x8000
-#define TREE_CONF_BUTIMG 0x00010000
-#define TREE_CONF_BUTBMP 0x00020000
+#define TREE_CONF_FONT 0x0001
+#define TREE_CONF_ITEMSIZE 0x0002
+#define TREE_CONF_INDENT 0x0004
+#define TREE_CONF_WRAP 0x0008
+#define TREE_CONF_BUTIMG 0x0010
+#define TREE_CONF_BUTBMP 0x0020
 /* ... */
-#define TREE_CONF_RELAYOUT 0x00040000
-#define TREE_CONF_REDISPLAY 0x00080000
-#define TREE_CONF_FG 0x00100000
-#define TREE_CONF_PROXY 0x00200000
-#define TREE_CONF_BUTTON 0x00400000
-#define TREE_CONF_LINE 0x00800000
-#define TREE_CONF_DEFSTYLE 0x01000000
-#define TREE_CONF_BG_IMAGE 0x02000000
-#define TREE_CONF_THEME 0x041000000
+#define TREE_CONF_RELAYOUT 0x0100
+#define TREE_CONF_REDISPLAY 0x0200
+#define TREE_CONF_FG 0x0400
+#define TREE_CONF_PROXY 0x0800
+#define TREE_CONF_BUTTON 0x1000
+#define TREE_CONF_LINE 0x2000
+#define TREE_CONF_DEFSTYLE 0x4000
+#define TREE_CONF_BG_IMAGE 0x8000
+#define TREE_CONF_THEME 0x00010000
 
 extern void Tree_AddItem(TreeCtrl *tree, TreeItem item);
 extern void Tree_RemoveItem(TreeCtrl *tree, TreeItem item);
@@ -763,7 +757,6 @@ extern int Tree_HitTest(TreeCtrl *tree, int x, int y);
 
 extern void TreeDInfo_Init(TreeCtrl *tree);
 extern void TreeDInfo_Free(TreeCtrl *tree);
-extern void TreeCtrlDisplay(void *recordPtr, Drawable d);
 extern void Tree_EventuallyRedraw(TreeCtrl *tree);
 extern void Tree_GetScrollFractionsX(TreeCtrl *tree, double fractions[2]);
 extern void Tree_GetScrollFractionsY(TreeCtrl *tree, double fractions[2]);
@@ -809,6 +802,7 @@ extern void Tree_DrawTiledImage(TreeCtrl *tree, Drawable drawable, Tk_Image imag
 #define DINFO_REDO_INCREMENTS 0x1000
 #define DINFO_REDO_COLUMN_WIDTH 0x2000
 #define DINFO_REDO_SELECTION 0x4000
+#define DINFO_DRAW_WHITESPACE 0x8000
 extern void Tree_DInfoChanged(TreeCtrl *tree, int flags);
 
 extern void Tree_TheWorldHasChanged(Tcl_Interp *interp);

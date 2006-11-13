@@ -9,7 +9,7 @@
  */
 
 #include "tkTreeCtrl.h"
-#include "tclInt.h"
+#include "tclInt.h" /* TclFormatInt */
 
 static int EVENT_EXPAND,
     DETAIL_EXPAND_BEFORE,
