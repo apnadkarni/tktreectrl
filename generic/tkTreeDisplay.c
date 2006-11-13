@@ -6918,6 +6918,7 @@ Tree_InvalidateRegion(
     }
 
 #if 1
+    TkClipBox(region, &rect);
     x1 = rect.x, x2 = rect.x + rect.width;
     y1 = rect.y, y2 = rect.y + rect.height;
     if ((x1 < Tree_BorderLeft(tree)) ||
@@ -6930,6 +6931,7 @@ Tree_InvalidateRegion(
 #else
     /* Could check border and highlight separately */
     if (tree->inset > 0) {
+	TkClipBox(region, &rect);
 	x1 = rect.x, x2 = rect.x + rect.width;
 	y1 = rect.y, y2 = rect.y + rect.height;
 	if ((x1 < Tree_BorderLeft(tree)) ||
