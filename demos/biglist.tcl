@@ -315,7 +315,7 @@ if {$::clip} {
 		if {$::thisPlatform ne "windows"} {
 			set message [string map {\n ""} $message]
 		}
-		button $w.b3 -text "Anal Probe Wizard..." -command [list tk_messageBox \
+		$::buttonCmd $w.b3 -text "Anal Probe Wizard..." -command [list tk_messageBox \
 			-parent . -message $message -title "Anal Probe 2.0"]
 
 		grid $w.label1 -row 0 -column 0 -sticky w -padx {0 8}

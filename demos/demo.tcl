@@ -55,17 +55,15 @@ if {[catch {
     proc dbwin s {puts -nonewline $s}
 }
 
-set tile 0
-set entryCmd ::entry
-catch {
-    namespace import -force ::ttk::button ::ttk::checkbutton \
-	    ttk::radiobutton
-    # Don't import this, it messes up our edit bindings, and I'm not
-    # sure how to get/set the equivalent -borderwidth, -selectborderwidth
-    # etc options of a TEntry.
-    set ::entryCmd ::ttk::entry
-    set tile 1
-}
+set tile 1
+# Don't import ::ttk::entry, it messes up the edit bindings, and I'm not
+# sure how to get/set the equivalent -borderwidth, -selectborderwidth
+# etc options of a TEntry.
+set entryCmd ::ttk::entry
+set buttonCmd ::ttk::button
+set checkbuttonCmd ::ttk::checkbutton
+set radiobuttonCmd ttk::radiobutton
+set scrollbarCmd ::ttk::scrollbar
 
 # This gets called if 'package require' won't work during development.
 proc LoadSharedLibrary {} {
@@ -224,7 +222,8 @@ proc MakeMenuBar {} {
     set m2 [menu $m.mTheme -tearoff no]
     $m add cascade -label "Theme" -menu $m2
     foreach theme [lsort -dictionary [ttk::style theme names]] {
-	$m2 add command -label $theme -command [list ttk::setTheme $theme]
+	$m2 add radiobutton -label $theme -command [list ttk::setTheme $theme] \
+	    -variable ::DemoTheme -value $theme
     }
     $m2 add separator
     $m2 add command -label "Inspector" -command ToggleThemeWindow
@@ -461,8 +460,8 @@ proc MakeSourceWindow {} {
     }
     text $f.t -font $font -tabs [font measure $font 1234] -wrap none \
 	-yscrollcommand "$f.sv set" -xscrollcommand "$f.sh set"
-    scrollbar $f.sv -orient vertical -command "$f.t yview"
-    scrollbar $f.sh -orient horizontal -command "$f.t xview"
+    $::scrollbarCmd $f.sv -orient vertical -command "$f.t yview"
+    $::scrollbarCmd $f.sh -orient horizontal -command "$f.t xview"
     pack $f -expand yes -fill both
     grid columnconfigure $f 0 -weight 1
     grid rowconfigure $f 0 -weight 1
@@ -635,7 +634,7 @@ proc sbset {sb first last} {
 }
 
 proc TreePlusScrollbarsInAFrame {f h v} {
-    frame $f -borderwidth 1 -relief sunken
+    frame $f -borderwidth 0
     switch -- $::thisPlatform {
 	macintosh {
 	    set font {Geneva 9}
@@ -654,15 +653,16 @@ proc TreePlusScrollbarsInAFrame {f h v} {
     }
     treectrl $f.t -highlightthickness 0 -borderwidth 0 -font $font
     $f.t configure -xscrollincrement 20
-    $f.t debug configure -enable no -display no
+    $f.t debug configure -enable no -display yes -erasecolor pink \
+	-drawcolor orange -displaydelay 30 -textlayout 0 -data 0
     if {$h} {
-	scrollbar $f.sh -orient horizontal -command "$f.t xview"
+	$::scrollbarCmd $f.sh -orient horizontal -command "$f.t xview"
 	#		$f.t configure -xscrollcommand "$f.sh set"
 	$f.t notify bind $f.sh <Scroll-x> { sbset %W %l %u }
 	bind $f.sh <ButtonPress-1> "focus $f.t"
     }
     if {$v} {
-	scrollbar $f.sv -orient vertical -command "$f.t yview"
+	$::scrollbarCmd $f.sv -orient vertical -command "$f.t yview"
 	#		$f.t configure -yscrollcommand "$f.sv set"
 	$f.t notify bind $f.sv <Scroll-y> { sbset %W %l %u }
 	bind $f.sv <ButtonPress-1> "focus $f.t"
@@ -753,8 +753,6 @@ proc MakeMainWindow {} {
     # Tree + scrollbars
     TreePlusScrollbarsInAFrame .f2.f1 1 1
     .f2.f1.t configure -indent 19
-    .f2.f1.t debug configure -enable no -display yes -erasecolor pink \
-	-drawcolor orange -displaydelay 30
 
     # Give it a big border to debug drawing
     .f2.f1.t configure -borderwidth 6 -relief ridge -highlightthickness 3
@@ -1384,8 +1382,8 @@ proc DemoClear {} {
 	-background white -scrollmargin 0 -xscrolldelay 50 -yscrolldelay 50 \
 	-buttonbitmap "" -buttonimage "" -backgroundmode row \
 	-indent 19 -defaultstyle {} -backgroundimage "" \
-	-showrootlines yes -minitemheight 0 -borderwidth 6 \
-	-highlightthickness 3 -usetheme yes -cursor {} \
+	-showrootlines yes -minitemheight 0 -borderwidth 0 \
+	-highlightthickness 0 -usetheme yes -cursor {} \
 	-itemwidth 0 -itemwidthequal no -itemwidthmultiple 0 \
 	-font [.f4.t cget -font]
 
