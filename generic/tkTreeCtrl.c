@@ -11,6 +11,7 @@
  */
 
 #include "tkTreeCtrl.h"
+#include "tclInt.h" /* TclGetIntForIndex */
 #include "ttk/ttk-extra.h"
 
 #ifdef WIN32
@@ -62,7 +63,6 @@ static CONST char *lineStyleST[] = {
 static CONST char *orientStringTable[] = {
     "horizontal", "vertical", (char *) NULL
 };
-
 extern Tk_ObjCustomOption columnCO_NOT_TAIL;
 
 static Tk_OptionSpec optionSpecs[] = {
@@ -420,6 +420,9 @@ TreeObjCmd(
     /* Must do this on Unix because Tk_GCForColor() uses
      * Tk_WindowId(tree->tkwin) */
     Tk_MakeWindowExist(tree->tkwin);
+
+    /* Window must exist on Win32. */
+    TreeTheme_Init(tree);
 
     if (Tk_InitOptions(interp, (char *) tree, optionTable, tkwin) != TCL_OK) {
 	Tk_DestroyWindow(tree->tkwin);
@@ -999,7 +1002,6 @@ static int TreeWidgetCmd(
 	case COMMAND_RANGE:
 	{
 	    TreeItem item, itemFirst, itemLast;
-	    int indexFirst, indexLast;
 	    Tcl_Obj *listObj;
 
 	    if (objc != 4) {
@@ -1010,21 +1012,8 @@ static int TreeWidgetCmd(
 		goto error;
 	    if (TreeItem_FromObj(tree, objv[3], &itemLast, IFO_NOT_NULL) != TCL_OK)
 		goto error;
-	    if (TreeItem_RootAncestor(tree, itemFirst) !=
-		    TreeItem_RootAncestor(tree, itemLast)) {
-		FormatResult(interp,
-			"item %s%d and item %s%d don't share a common ancestor",
-			tree->itemPrefix, TreeItem_GetID(tree, itemFirst),
-			tree->itemPrefix, TreeItem_GetID(tree, itemLast));
+	    if (TreeItem_FirstAndLast(tree, &itemFirst, &itemLast) == 0)
 		goto error;
-	    }
-	    TreeItem_ToIndex(tree, itemFirst, &indexFirst, NULL);
-	    TreeItem_ToIndex(tree, itemLast, &indexLast, NULL);
-	    if (indexFirst > indexLast) {
-		item = itemFirst;
-		itemFirst = itemLast;
-		itemLast = item;
-	    }
 	    listObj = Tcl_NewListObj(0, NULL);
 	    item = itemFirst;
 	    while (item != NULL) {
@@ -1647,6 +1636,7 @@ TreeEventProc(
 	    break;
 	case VirtualEvent:
 	    if (!strcmp("ThemeChanged", ((XVirtualEvent *)(eventPtr))->name)) {
+		TreeTheme_ThemeChanged(tree);
 		tree->widthOfColumns = -1;
 		tree->widthOfColumnsLeft = tree->widthOfColumnsRight = -1;
 		Tree_RelayoutWindow(tree);
@@ -1736,6 +1726,7 @@ TreeDestroy(
     TreeDragImage_Free(tree->dragImage);
     TreeMarquee_Free(tree->marquee);
     TreeDInfo_Free(tree);
+    TreeTheme_Free(tree);
 
     if (tree->copyGC != None)
 	Tk_FreeGC(tree->display, tree->copyGC);
@@ -2759,10 +2750,70 @@ doneCLEAR:
 	    Tcl_HashEntry *hPtr;
 	    Tcl_HashSearch search;
 
+#ifdef SELECTION_VISIBLE
+	    if (objc < 3 || objc > 5) {
+		Tcl_WrongNumArgs(interp, 3, objv, "?first? ?last?");
+		return TCL_ERROR;
+	    }
+	    if (objc > 3) {
+		int first, last;
+		TreeItemList items;
+
+		if (TclGetIntForIndex(interp, objv[3], tree->selectCount - 1,
+			&first) != TCL_OK) {
+		    return TCL_ERROR;
+		}
+		if (first < 0)
+		    first = 0;
+		last = first;
+		if (objc == 5) {
+		    if (TclGetIntForIndex(interp, objv[4], tree->selectCount - 1,
+			    &last) != TCL_OK) {
+			return TCL_ERROR;
+		    }
+		}
+		if (last >= tree->selectCount)
+		    last = tree->selectCount - 1;
+		if (first > last)
+		    break;
+
+		/* Build a list of selected items. */
+		TreeItemList_Init(tree, &items, tree->selectCount);
+		hPtr = Tcl_FirstHashEntry(&tree->selection, &search);
+		while (hPtr != NULL) {
+		    item = (TreeItem) Tcl_GetHashKey(&tree->selection, hPtr);
+		    TreeItemList_Append(&items, item);
+		    hPtr = Tcl_NextHashEntry(&search);
+		}
+
+		/* Sort it. */
+		TreeItemList_Sort(&items);
+
+		if (first == last) {
+		    item = TreeItemList_Nth(&items, first);
+		    Tcl_SetObjResult(interp, TreeItem_ToObj(tree, item));
+		} else {
+		    listObj = Tcl_NewListObj(0, NULL);
+		    for (index = first; index <= last; index++) {
+			item = TreeItemList_Nth(&items, index);
+			Tcl_ListObjAppendElement(interp, listObj,
+				TreeItem_ToObj(tree, item));
+		    }
+		    Tcl_SetObjResult(interp, listObj);
+		}
+
+		TreeItemList_Free(&items);
+		break;
+	    }
+#else /* SELECTION_VISIBLE */
+	    /* If any item may be selected, including orphans, then getting
+	     * a sorted list of selected items is impossible. */
 	    if (objc != 3) {
 		Tcl_WrongNumArgs(interp, 3, objv, (char *) NULL);
 		return TCL_ERROR;
 	    }
+#endif /* SELECTION_VISIBLE */
+
 	    if (tree->selectCount < 1)
 		break;
 	    listObj = Tcl_NewListObj(0, NULL);
@@ -4125,7 +4176,7 @@ Tree_TheWorldHasChanged(
     )
 {
     /* Could send a <<ThemeChanged>> event to every window like Tile does. */
-    /* Could keep a list of treectrl widgets */
+    /* Could keep a list of treectrl widgets. */
     TkWindow *winPtr = (TkWindow *) Tk_MainWindow(interp);
     RecomputeWidgets(winPtr);
 }
@@ -4184,7 +4235,7 @@ Treectrl_Init(
     }
 
     /* We don't care if this fails. */
-    (void) TreeTheme_Init(interp);
+    (void) TreeTheme_InitInterp(interp);
 
     if (TreeColumn_InitInterp(interp) != TCL_OK)
 	return TCL_ERROR;

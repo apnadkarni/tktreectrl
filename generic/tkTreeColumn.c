@@ -304,7 +304,7 @@ static Tk_OptionSpec columnSpecs[] = {
      /* NOTE: -background is a per-state option, so DEF_BUTTON_BG_COLOR
       * must be a list of one element */
     {TK_OPTION_CUSTOM, "-background", (char *) NULL, (char *) NULL,
-     DEF_BUTTON_BG_COLOR,
+     (char *) NULL /* initialized later */,
      Tk_Offset(TreeColumn_, border.obj), Tk_Offset(TreeColumn_, border),
      0, (ClientData) NULL, COLU_CONF_DISPLAY},
     {TK_OPTION_BITMAP, "-bitmap", (char *) NULL, (char *) NULL,
@@ -3707,7 +3707,7 @@ TreeColumnCmd(
     int index;
     TreeColumnList columns;
     TreeColumn column;
-    ColumnForEach iter;
+    ColumnForEach citer;
 
     if (objc < 3) {
 	Tcl_WrongNumArgs(interp, 2, objv, "command ?arg arg ...?");
@@ -3812,13 +3812,13 @@ TreeColumnCmd(
 		Tcl_SetObjResult(interp, resultObjPtr);
 		break;
 	    }
-	    /* If "all" is specified, return a list of columns instead of
+	    /* If "all" is specified, get a list of columns instead of
 	     * COLUMN_ALL, since changing the -lock option of a column
 	     * may reorder columns. */
 	    if (TreeColumnList_FromObj(tree, objv[3], &columns,
 		    CFO_LIST_ALL | CFO_NOT_NULL) != TCL_OK)
 		return TCL_ERROR;
-	    COLUMN_FOR_EACH(column, &columns, NULL, &iter) {
+	    COLUMN_FOR_EACH(column, &columns, NULL, &citer) {
 		if (Column_Config(column, objc - 4, objv + 4, FALSE) != TCL_OK)
 		    goto errorExit;
 	    }
@@ -3883,7 +3883,6 @@ TreeColumnCmd(
 	    TreeColumnList columns, column2s;
 	    TreeColumn prev, next;
 	    int flags = CFO_NOT_NULL | CFO_NOT_TAIL;
-	    ColumnForEach citer;
 	    TreeItem item;
 	    Tcl_HashEntry *hPtr;
 	    Tcl_HashSearch search;
@@ -4065,18 +4064,27 @@ doneDELETE:
 
 	case COMMAND_COUNT:
 	{
-	    if (objc != 3) {
-		Tcl_WrongNumArgs(interp, 2, objv, (char *) NULL);
+	    int count = tree->columnCount;
+
+	    if (objc < 3 || objc > 4) {
+		Tcl_WrongNumArgs(interp, 3, objv, "?columnDesc?");
 		return TCL_ERROR;
 	    }
-	    Tcl_SetObjResult(interp, Tcl_NewIntObj(tree->columnCount));
+	    if (objc == 4) {
+		if (TreeColumnList_FromObj(tree, objv[3], &columns, 0)
+			!= TCL_OK)
+		    return TCL_ERROR;
+		count = 0;
+		COLUMN_FOR_EACH(column, &columns, NULL, &citer) {
+		    count++;
+		}
+	    }
+	    Tcl_SetObjResult(interp, Tcl_NewIntObj(count));
 	    break;
 	}
 
 	case COMMAND_WIDTH:
 	{
-	    TreeColumn column;
-
 	    if (objc != 4) {
 		Tcl_WrongNumArgs(interp, 3, objv, "column");
 		return TCL_ERROR;
@@ -4105,7 +4113,7 @@ doneDELETE:
 	    if (TreeColumnList_FromObj(tree, objv[3], &columns, 0) != TCL_OK)
 		return TCL_ERROR;
 	    listObj = Tcl_NewListObj(0, NULL);
-	    COLUMN_FOR_EACH(column, &columns, NULL, &iter) {
+	    COLUMN_FOR_EACH(column, &columns, NULL, &citer) {
 		Tcl_ListObjAppendElement(interp, listObj,
 			TreeColumn_ToObj(tree, column));
 	    }
@@ -4609,6 +4617,52 @@ SetImageForColumn(
 }
 
 static void
+DrawDragIndicator(
+    TreeCtrl *tree,		/* Widget info. */
+    Drawable drawable,		/* Where to draw. */
+    int lock
+    )
+{
+    TreeColumn column = tree->columnDrag.indColumn;
+    int x, y, w, h;
+    int minX = 0, maxX = 0;
+    GC gc;
+
+    if ((column == NULL) || (column->lock != lock))
+	return;
+
+    switch (lock) {
+	case COLUMN_LOCK_LEFT:
+	    minX = Tree_HeaderLeft(tree);
+	    maxX = Tree_ContentLeft(tree);
+	    break;
+	case COLUMN_LOCK_NONE:
+	    minX = Tree_ContentLeft(tree);
+	    maxX = Tree_ContentRight(tree);
+	    break;
+	case COLUMN_LOCK_RIGHT:
+	    minX = Tree_ContentRight(tree);
+	    maxX = Tree_HeaderRight(tree);
+	    break;
+    }
+
+    if (TreeColumn_Bbox(column, &x, &y, &w, &h) == 0) {
+	if (tree->columnDrag.indSide == SIDE_LEFT) {
+	    x -= 1;
+	    if (x == minX - 1)
+		x += 1;
+	} else {
+	    x += w - 1;
+	    if (x == maxX - 1)
+		x -= 1;
+	}
+	gc = Tk_GCForColor(tree->columnDrag.indColor, Tk_WindowId(tree->tkwin));
+	XFillRectangle(tree->display, drawable, gc,
+	    x, y, 2, tree->headerHeight);
+    }
+}
+
+static void
 DrawHeaderLeft(
     TreeCtrl *tree,		/* Widget info. */
     Drawable drawable		/* Where to draw. */
@@ -4630,6 +4684,8 @@ DrawHeaderLeft(
 	column = column->next;
     }
 
+    DrawDragIndicator(tree, pixmap, COLUMN_LOCK_LEFT);
+
     XCopyArea(tree->display, pixmap, drawable,
 	    tree->copyGC, Tree_HeaderLeft(tree), y,
 	    x - Tree_HeaderLeft(tree), tree->headerHeight,
@@ -4646,7 +4702,7 @@ DrawHeaderRight(
 {
     TreeColumn column = tree->columnLockRight;
     Tk_Window tkwin = tree->tkwin;
-    int x = 0, y = Tree_HeaderTop(tree);
+    int x = Tree_ContentRight(tree), y = Tree_HeaderTop(tree);
     Drawable pixmap;
 
     pixmap = Tk_GetPixmap(tree->display, Tk_WindowId(tkwin),
@@ -4660,9 +4716,11 @@ DrawHeaderRight(
 	column = column->next;
     }
 
+    DrawDragIndicator(tree, pixmap, COLUMN_LOCK_RIGHT);
+
     XCopyArea(tree->display, pixmap, drawable,
-	    tree->copyGC, 0, y,
-	    x, tree->headerHeight,
+	    tree->copyGC, Tree_ContentRight(tree), y,
+	    x - Tree_ContentRight(tree), tree->headerHeight,
 	    Tree_ContentRight(tree), y);
 
     Tk_FreePixmap(tree->display, pixmap);
@@ -4740,25 +4798,13 @@ Tree_DrawHeader(
 	}
     }
 
+    if (minX < maxX)
+	DrawDragIndicator(tree, pixmap, COLUMN_LOCK_NONE);
+
     if (Tree_WidthOfLeftColumns(tree) > 0)
 	DrawHeaderLeft(tree, pixmap);
     if (Tree_WidthOfRightColumns(tree) > 0)
 	DrawHeaderRight(tree, pixmap);
-
-    if (tree->columnDrag.indColumn != NULL) {
-	int x, y, w, h;
-	GC gc;
-
-	if (TreeColumn_Bbox(tree->columnDrag.indColumn, &x, &y, &w, &h) == 0) {
-	    if (tree->columnDrag.indSide == SIDE_LEFT)
-		x -= 1;
-	    else
-		x += w - 1;
-	    gc = Tk_GCForColor(tree->columnDrag.indColor, Tk_WindowId(tree->tkwin));
-	    XFillRectangle(tree->display, pixmap, gc,
-		x, y, 2, tree->headerHeight);
-	}
-    }
 
     if (tree->columnDrag.column != NULL) {
 	Tk_Image image;
@@ -5598,6 +5644,21 @@ TreeColumn_InitInterp(
     Tcl_Interp *interp		/* Current interpreter. */
     )
 {
+    Tk_OptionSpec *specPtr;
+    Tcl_DString dString;
+
+    specPtr = OptionSpec_Find(columnSpecs, "-background");
+    if (specPtr->defValue == NULL) {
+	Tcl_DStringInit(&dString);
+	Tcl_DStringAppendElement(&dString, DEF_BUTTON_BG_COLOR);
+	Tcl_DStringAppendElement(&dString, "normal");
+	Tcl_DStringAppendElement(&dString, DEF_BUTTON_ACTIVE_BG_COLOR);
+	Tcl_DStringAppendElement(&dString, "");
+	specPtr->defValue = ckalloc(Tcl_DStringLength(&dString) + 1);
+	strcpy(specPtr->defValue, Tcl_DStringValue(&dString));
+	Tcl_DStringFree(&dString);
+    }
+    
     PerStateCO_Init(columnSpecs, "-arrowbitmap", &pstBitmap, ColumnStateFromObj);
     PerStateCO_Init(columnSpecs, "-arrowimage", &pstImage, ColumnStateFromObj);
     PerStateCO_Init(columnSpecs, "-background", &pstBorder, ColumnStateFromObj);

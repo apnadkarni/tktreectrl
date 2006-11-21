@@ -5105,6 +5105,47 @@ DisplayDItem(
     return 1;
 }
 
+void
+DebugDrawBorder(
+    TreeCtrl *tree,
+    int inset,
+    int left,
+    int top,
+    int right,
+    int bottom
+    )
+{
+    Tk_Window tkwin = tree->tkwin;
+
+    if (tree->debug.enable && tree->debug.display && tree->debug.drawColor) {
+	if (left > 0) {
+	    XFillRectangle(tree->display, Tk_WindowId(tkwin),
+		    tree->debug.gcDraw,
+		    inset, inset,
+		    left, Tk_Height(tkwin) - inset * 2);
+	}
+	if (top > 0) {
+	    XFillRectangle(tree->display, Tk_WindowId(tkwin),
+		    tree->debug.gcDraw,
+		    inset, inset,
+		    Tk_Width(tkwin) - inset * 2, top);
+	}
+	if (right > 0) {
+	    XFillRectangle(tree->display, Tk_WindowId(tkwin),
+		    tree->debug.gcDraw,
+		    Tk_Width(tkwin) - inset - right, inset,
+		    right, Tk_Height(tkwin) - inset * 2);
+	}
+	if (bottom > 0) {
+	    XFillRectangle(tree->display, Tk_WindowId(tkwin),
+		    tree->debug.gcDraw,
+		    inset, Tk_Height(tkwin) - inset - bottom,
+		    Tk_Width(tkwin) - inset * 2, bottom);
+	}
+	DisplayDelay(tree);
+    }
+}
+
 /*
  *--------------------------------------------------------------
  *
@@ -5673,6 +5714,9 @@ displayRetry:
     if ((dInfo->flags & DINFO_DRAW_HIGHLIGHT) && (tree->highlightWidth > 0)) {
 	GC fgGC, bgGC;
 
+	DebugDrawBorder(tree, 0, tree->highlightWidth, tree->highlightWidth,
+		tree->highlightWidth, tree->highlightWidth);
+
 	bgGC = Tk_GCForColor(tree->highlightBgColorPtr, drawable);
 	if (tree->gotFocus)
 	    fgGC = Tk_GCForColor(tree->highlightColorPtr, drawable);
@@ -5684,6 +5728,10 @@ displayRetry:
 
     /* Draw 3D-border (inside of focus rectangle) */
     if ((dInfo->flags & DINFO_DRAW_BORDER) && (tree->borderWidth > 0)) {
+	DebugDrawBorder(tree, tree->highlightWidth,
+		tree->borderWidth, tree->borderWidth,
+		tree->borderWidth, tree->borderWidth);
+
 	Tk_Draw3DRectangle(tkwin, drawable, tree->border, tree->highlightWidth,
 		tree->highlightWidth, Tk_Width(tkwin) - tree->highlightWidth * 2,
 		Tk_Height(tkwin) - tree->highlightWidth * 2, tree->borderWidth,

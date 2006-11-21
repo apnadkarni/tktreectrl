@@ -96,8 +96,14 @@ typedef struct
     SIZE buttonClosed;
 } XPThemeData;
 
+typedef struct TreeThemeData_
+{
+    HTHEME hThemeHEADER;
+    HTHEME hThemeTREEVIEW;
+} TreeThemeData_;
+
 static XPThemeProcs *procs = NULL;
-static XPThemeData *themeData = NULL; 
+static XPThemeData *appThemeData = NULL; 
 TCL_DECLARE_MUTEX(themeMutex)
 
 /*
@@ -175,8 +181,6 @@ LoadXPThemeProcs(HINSTANCE *phlib)
 int TreeTheme_DrawHeaderItem(TreeCtrl *tree, Drawable drawable, int state,
     int arrow, int x, int y, int width, int height)
 {
-    Window win = Tk_WindowId(tree->tkwin);
-    HWND hwnd = Tk_GetHWND(win);
     HTHEME hTheme;
     HDC hDC;
     TkWinDCState dcState;
@@ -192,10 +196,10 @@ int TreeTheme_DrawHeaderItem(TreeCtrl *tree, Drawable drawable, int state,
 	case COLUMN_STATE_PRESSED: iStateId = HIS_PRESSED; break;
     }
 
-    if (!themeData->themeEnabled || !procs)
+    if (!appThemeData->themeEnabled || !procs)
 	return TCL_ERROR;
 
-    hTheme = procs->OpenThemeData(hwnd, L"HEADER");
+    hTheme = tree->themeData->hThemeHEADER;
     if (!hTheme)
 	return TCL_ERROR;
 
@@ -205,7 +209,6 @@ int TreeTheme_DrawHeaderItem(TreeCtrl *tree, Drawable drawable, int state,
 	iPartId,
 	iStateId))
     {
-	procs->CloseThemeData(hTheme);
 	return TCL_ERROR;
     }
 #endif
@@ -275,7 +278,6 @@ int TreeTheme_DrawHeaderItem(TreeCtrl *tree, Drawable drawable, int state,
 	&rc,
 	NULL);
 
-    procs->CloseThemeData(hTheme);
     TkWinReleaseDrawableDC(drawable, hDC, &dcState);
 
     if (hr != S_OK)
@@ -287,7 +289,6 @@ int TreeTheme_DrawHeaderItem(TreeCtrl *tree, Drawable drawable, int state,
 int TreeTheme_GetHeaderContentMargins(TreeCtrl *tree, int state, int arrow, int bounds[4])
 {
     Window win = Tk_WindowId(tree->tkwin);
-    HWND hwnd = Tk_GetHWND(win);
     HTHEME hTheme;
     HDC hDC;
     TkWinDCState dcState;
@@ -303,10 +304,10 @@ int TreeTheme_GetHeaderContentMargins(TreeCtrl *tree, int state, int arrow, int 
 	case COLUMN_STATE_PRESSED: iStateId = HIS_PRESSED; break;
     }
 
-    if (!themeData->themeEnabled || !procs)
+    if (!appThemeData->themeEnabled || !procs)
 	return TCL_ERROR;
 
-    hTheme = procs->OpenThemeData(hwnd, L"HEADER");
+    hTheme = tree->themeData->hThemeHEADER;
     if (!hTheme)
 	return TCL_ERROR;
 
@@ -324,7 +325,6 @@ int TreeTheme_GetHeaderContentMargins(TreeCtrl *tree, int state, int arrow, int 
 	NULL,
 	&margins);
 
-    procs->CloseThemeData(hTheme);
     TkWinReleaseDrawableDC(win, hDC, &dcState);
 
     if (hr != S_OK)
@@ -348,7 +348,7 @@ int TreeTheme_DrawHeaderArrow(TreeCtrl *tree, Drawable drawable, int up,
     GC gc;
     int i;
 
-    if (!themeData->themeEnabled || !procs)
+    if (!appThemeData->themeEnabled || !procs)
 	return TCL_ERROR;
 
     color = Tk_GetColor(tree->interp, tree->tkwin, "#ACA899");
@@ -383,10 +383,10 @@ int TreeTheme_DrawHeaderArrow(TreeCtrl *tree, Drawable drawable, int up,
     int iPartId = HP_HEADERSORTARROW;
     int iStateId = up ? HSAS_SORTEDUP : HSAS_SORTEDDOWN;
 
-    if (!themeData->themeEnabled || !procs)
+    if (!appThemeData->themeEnabled || !procs)
 	return TCL_ERROR;
 
-    hTheme = procs->OpenThemeData(hwnd, L"HEADER");
+    hTheme = tree->themeData->hThemeHEADER;
     if (!hTheme)
 	return TCL_ERROR;
 
@@ -395,7 +395,6 @@ int TreeTheme_DrawHeaderArrow(TreeCtrl *tree, Drawable drawable, int up,
 	iPartId,
 	iStateId))
     {
-	procs->CloseThemeData(hTheme);
 	return TCL_ERROR;
     }
 
@@ -414,7 +413,6 @@ int TreeTheme_DrawHeaderArrow(TreeCtrl *tree, Drawable drawable, int up,
 	&rc,
 	NULL);
 
-    procs->CloseThemeData(hTheme);
     TkWinReleaseDrawableDC(drawable, hDC, &dcState);
     return TCL_OK;
 #endif /* 0 */
@@ -423,8 +421,6 @@ int TreeTheme_DrawHeaderArrow(TreeCtrl *tree, Drawable drawable, int up,
 int TreeTheme_DrawButton(TreeCtrl *tree, Drawable drawable, int open,
     int x, int y, int width, int height)
 {
-    Window win = Tk_WindowId(tree->tkwin);
-    HWND hwnd = Tk_GetHWND(win);
     HTHEME hTheme;
     HDC hDC;
     TkWinDCState dcState;
@@ -432,13 +428,13 @@ int TreeTheme_DrawButton(TreeCtrl *tree, Drawable drawable, int open,
     HRESULT hr;
     int iPartId, iStateId;
 
-    if (!themeData->themeEnabled || !procs)
+    if (!appThemeData->themeEnabled || !procs)
 	return TCL_ERROR;
 
     iPartId  = TVP_GLYPH;
     iStateId = open ? GLPS_OPENED : GLPS_CLOSED;
 
-    hTheme = procs->OpenThemeData(hwnd, L"TREEVIEW");
+    hTheme = tree->themeData->hThemeTREEVIEW;
     if (!hTheme)
 	return TCL_ERROR;
 
@@ -448,7 +444,6 @@ int TreeTheme_DrawButton(TreeCtrl *tree, Drawable drawable, int open,
 	iPartId,
 	iStateId))
     {
-	procs->CloseThemeData(hTheme);
 	return TCL_ERROR;
     }
 #endif
@@ -467,7 +462,6 @@ int TreeTheme_DrawButton(TreeCtrl *tree, Drawable drawable, int open,
 	&rc,
 	NULL);
 
-    procs->CloseThemeData(hTheme);
     TkWinReleaseDrawableDC(drawable, hDC, &dcState);
 
     if (hr != S_OK)
@@ -479,8 +473,6 @@ int TreeTheme_DrawButton(TreeCtrl *tree, Drawable drawable, int open,
 int TreeTheme_GetButtonSize(TreeCtrl *tree, Drawable drawable, int open,
     int *widthPtr, int *heightPtr)
 {
-    Window win = Tk_WindowId(tree->tkwin);
-    HWND hwnd = Tk_GetHWND(win);
     HTHEME hTheme;
     HDC hDC;
     TkWinDCState dcState;
@@ -488,11 +480,11 @@ int TreeTheme_GetButtonSize(TreeCtrl *tree, Drawable drawable, int open,
     SIZE size;
     int iPartId, iStateId;
 
-    if (!themeData->themeEnabled || !procs)
+    if (!appThemeData->themeEnabled || !procs)
 	return TCL_ERROR;
 
     /* Use cached values */
-    size = open ? themeData->buttonOpen : themeData->buttonClosed;
+    size = open ? appThemeData->buttonOpen : appThemeData->buttonClosed;
     if (size.cx > 1) {
 	*widthPtr = size.cx;
 	*heightPtr = size.cy;
@@ -502,7 +494,7 @@ int TreeTheme_GetButtonSize(TreeCtrl *tree, Drawable drawable, int open,
     iPartId  = TVP_GLYPH;
     iStateId = open ? GLPS_OPENED : GLPS_CLOSED;
 
-    hTheme = procs->OpenThemeData(hwnd, L"TREEVIEW");
+    hTheme = tree->themeData->hThemeTREEVIEW;
     if (!hTheme)
 	return TCL_ERROR;
 
@@ -512,7 +504,6 @@ int TreeTheme_GetButtonSize(TreeCtrl *tree, Drawable drawable, int open,
 	iPartId,
 	iStateId))
     {
-	procs->CloseThemeData(hTheme);
 	return TCL_ERROR;
     }
 #endif
@@ -530,10 +521,11 @@ int TreeTheme_GetButtonSize(TreeCtrl *tree, Drawable drawable, int open,
 	&size
     );
 
-    procs->CloseThemeData(hTheme);
     TkWinReleaseDrawableDC(drawable, hDC, &dcState);
 
     /* With RandomN of 10000, I eventually get hr=E_HANDLE, invalid handle */
+    /* Not any longer since I don't call OpenThemeData/CloseThemeData for
+     * every call. */
     if (hr != S_OK)
 	return TCL_ERROR;
 
@@ -543,9 +535,9 @@ int TreeTheme_GetButtonSize(TreeCtrl *tree, Drawable drawable, int open,
 
     /* Cache the values */
     if (open)
-	themeData->buttonOpen = size;
+	appThemeData->buttonOpen = size;
     else
-	themeData->buttonClosed = size;
+	appThemeData->buttonClosed = size;
 
     *widthPtr = size.cx;
     *heightPtr = size.cy;
@@ -554,7 +546,7 @@ int TreeTheme_GetButtonSize(TreeCtrl *tree, Drawable drawable, int open,
 
 int TreeTheme_GetArrowSize(TreeCtrl *tree, Drawable drawable, int up, int *widthPtr, int *heightPtr)
 {
-    if (!themeData->themeEnabled || !procs)
+    if (!appThemeData->themeEnabled || !procs)
 	return TCL_ERROR;
 
     *widthPtr = 9;
@@ -574,8 +566,8 @@ WndProc(HWND hwnd, UINT msg, WPARAM wp, LPARAM lp)
     switch (msg) {
 	case WM_THEMECHANGED:
 	    Tcl_MutexLock(&themeMutex);
-	    themeData->themeEnabled = procs->IsThemeActive();
-	    themeData->buttonClosed.cx = themeData->buttonOpen.cx = -1;
+	    appThemeData->themeEnabled = procs->IsThemeActive();
+	    appThemeData->buttonClosed.cx = appThemeData->buttonOpen.cx = -1;
 	    Tcl_MutexUnlock(&themeMutex);
 	    Tree_TheWorldHasChanged(interp);
 	    break;
@@ -639,7 +631,58 @@ static void FreeAssocData(ClientData clientData, Tcl_Interp *interp)
     ckfree((char *) data);
 }
 
-int TreeTheme_Init(Tcl_Interp *interp)
+void TreeTheme_ThemeChanged(TreeCtrl *tree)
+{
+    Window win = Tk_WindowId(tree->tkwin);
+    HWND hwnd = Tk_GetHWND(win);
+
+    if (tree->themeData->hThemeHEADER != NULL) {
+	procs->CloseThemeData(tree->themeData->hThemeHEADER);
+	tree->themeData->hThemeHEADER = NULL;
+    }
+    if (tree->themeData->hThemeTREEVIEW != NULL) {
+	procs->CloseThemeData(tree->themeData->hThemeTREEVIEW);
+	tree->themeData->hThemeTREEVIEW = NULL;
+    }
+
+    if (!appThemeData->themeEnabled || !procs)
+	return;
+
+    tree->themeData->hThemeHEADER = procs->OpenThemeData(hwnd, L"HEADER");
+    tree->themeData->hThemeTREEVIEW = procs->OpenThemeData(hwnd, L"TREEVIEW");
+}
+
+int TreeTheme_Init(TreeCtrl *tree)
+{
+    Window win = Tk_WindowId(tree->tkwin);
+    HWND hwnd = Tk_GetHWND(win);
+
+    if (!appThemeData->themeEnabled || !procs)
+	return TCL_ERROR;
+
+    tree->themeData = (TreeThemeData) ckalloc(sizeof(TreeThemeData_));
+
+    /* http://www.codeproject.com/cs/miscctrl/themedtabpage.asp?msg=1445385#xx1445385xx */
+    /* http://msdn2.microsoft.com/en-us/library/ms649781.aspx */
+
+    tree->themeData->hThemeHEADER = procs->OpenThemeData(hwnd, L"HEADER");
+    tree->themeData->hThemeTREEVIEW = procs->OpenThemeData(hwnd, L"TREEVIEW");
+    return TCL_OK;
+}
+
+int TreeTheme_Free(TreeCtrl *tree)
+{
+    if (tree->themeData != NULL) {
+	if (tree->themeData->hThemeHEADER != NULL)
+	    procs->CloseThemeData(tree->themeData->hThemeHEADER);
+	if (tree->themeData->hThemeTREEVIEW != NULL)
+	    procs->CloseThemeData(tree->themeData->hThemeTREEVIEW);
+	ckfree((char *) tree->themeData);
+    }
+    return TCL_OK;
+}
+
+int TreeTheme_InitInterp(Tcl_Interp *interp)
 {
     HWND hwnd;
     PerInterpData *data;
@@ -647,28 +690,28 @@ int TreeTheme_Init(Tcl_Interp *interp)
     Tcl_MutexLock(&themeMutex);
 
     /* This is done once per-application */
-    if (themeData == NULL)
+    if (appThemeData == NULL)
     {
-	themeData = (XPThemeData *) ckalloc(sizeof(XPThemeData));
-	themeData->procs = LoadXPThemeProcs(&themeData->hlibrary);
-	themeData->registered = FALSE;
-	themeData->themeEnabled = FALSE;
-	themeData->buttonClosed.cx = themeData->buttonOpen.cx = -1;
+	appThemeData = (XPThemeData *) ckalloc(sizeof(XPThemeData));
+	appThemeData->procs = LoadXPThemeProcs(&appThemeData->hlibrary);
+	appThemeData->registered = FALSE;
+	appThemeData->themeEnabled = FALSE;
+	appThemeData->buttonClosed.cx = appThemeData->buttonOpen.cx = -1;
 
-	procs = themeData->procs;
+	procs = appThemeData->procs;
 
-	if (themeData->procs) {
+	if (appThemeData->procs) {
 	    /* Check this again if WM_THEMECHANGED arrives */
-	    themeData->themeEnabled = procs->IsThemeActive();
+	    appThemeData->themeEnabled = procs->IsThemeActive();
 
-	    themeData->registered =
+	    appThemeData->registered =
 		RegisterThemeMonitorWindowClass(Tk_GetHINSTANCE());
 	}
     }
 
     Tcl_MutexUnlock(&themeMutex);
 
-    if (!procs || !themeData->registered)
+    if (!procs || !appThemeData->registered)
 	return TCL_ERROR;
 
     /* Per-interp */
@@ -880,16 +923,42 @@ int TreeTheme_GetArrowSize(TreeCtrl *tree, Drawable drawable, int up, int *width
     return TCL_ERROR;
 }
 
-int TreeTheme_Init(Tcl_Interp *interp)
+void TreeTheme_ThemeChanged(TreeCtrl *tree)
+{
+}
+
+int TreeTheme_Init(TreeCtrl *tree)
+{
+    return TCL_OK;
+}
+
+int TreeTheme_Free(TreeCtrl *tree)
+{
+    return TCL_OK;
+}
+
+int TreeTheme_InitInterp(Tcl_Interp *interp)
 {
     return TCL_OK;
 }
 
 #else /* MAC_OSX_TK */
 
+typedef struct TreeThemeData_
+{
+    Ttk_Layout layout;
+    Ttk_Layout buttonLayout;
+    Ttk_Layout headingLayout;
+    Tk_OptionTable buttonOptionTable;
+    Tk_OptionTable headingOptionTable;
+    int buttonWidth[2], buttonHeight[2];
+    Ttk_Padding buttonPadding[2];
+} TreeThemeData_;
+
 int TreeTheme_DrawHeaderItem(TreeCtrl *tree, Drawable drawable, int state, int arrow, int x, int y, int width, int height)
 {
-    Ttk_Layout layout = tree->headingLayout;
+    TreeThemeData themeData = tree->themeData;
+    Ttk_Layout layout = themeData->headingLayout;
     Ttk_State ttk_state = 0;
     Ttk_Box box;
 
@@ -926,13 +995,21 @@ int TreeTheme_DrawHeaderArrow(TreeCtrl *tree, Drawable drawable, int up, int x, 
 
 int TreeTheme_DrawButton(TreeCtrl *tree, Drawable drawable, int open, int x, int y, int width, int height)
 {
-    Ttk_Layout layout = tree->buttonLayout;
+    TreeThemeData themeData = tree->themeData;
+    Ttk_Layout layout = themeData->buttonLayout;
     Ttk_State ttk_state = 0;
     Ttk_Box box;
+    Ttk_Padding padding;
 
     if (layout == NULL)
 	return TCL_ERROR;
 
+    open = open ? 1 : 0;
+    padding = themeData->buttonPadding[open];
+    x -= padding.left;
+    y -= padding.top;
+    width = themeData->buttonWidth[open];
+    height = themeData->buttonHeight[open];
     box = Ttk_MakeBox(x, y, width, height);
 
     ttk_state = open ? TTK_STATE_OPEN : 0;
@@ -946,12 +1023,16 @@ int TreeTheme_DrawButton(TreeCtrl *tree, Drawable drawable, int open, int x, int
 
 int TreeTheme_GetButtonSize(TreeCtrl *tree, Drawable drawable, int open, int *widthPtr, int *heightPtr)
 {
-    if (tree->buttonLayout == NULL)
+    TreeThemeData themeData = tree->themeData;
+    Ttk_Padding padding;
+
+    if (themeData->buttonLayout == NULL)
 	return TCL_ERROR;
 
     open = open ? 1 : 0;
-    *widthPtr = tree->themeButtonWidth[open];
-    *heightPtr = tree->themeButtonHeight[open];
+    padding = themeData->buttonPadding[open];
+    *widthPtr = themeData->buttonWidth[open] - padding.left - padding.right;
+    *heightPtr = themeData->buttonHeight[open] - padding.top - padding.bottom;
     return TCL_OK;
 }
 
@@ -994,16 +1075,13 @@ TreeCtrlGetLayout(
     )
 {
     TreeCtrl *tree = recordPtr;
+    TreeThemeData themeData = tree->themeData;
     Ttk_Layout treeLayout, newLayout;
 
-    /* This does not get called when resizing/redisplaying the widget. */
-    /* This does get called when the theme changes. */
-    dbwin("TreeCtrlGetLayout %s\n", Tk_PathName(tree->tkwin));
-
-    if (tree->headingOptionTable == NULL)
-	tree->headingOptionTable = Tk_CreateOptionTable(interp, NullOptionSpecs);
-    if (tree->buttonOptionTable == NULL)
-	tree->buttonOptionTable = Tk_CreateOptionTable(interp, NullOptionSpecs);
+    if (themeData->headingOptionTable == NULL)
+	themeData->headingOptionTable = Tk_CreateOptionTable(interp, NullOptionSpecs);
+    if (themeData->buttonOptionTable == NULL)
+	themeData->buttonOptionTable = Tk_CreateOptionTable(interp, NullOptionSpecs);
 
     /* Create a new layout record based on widget -style or class */
     treeLayout = eTtk_CreateLayout(interp, themePtr, "TreeCtrl", tree,
@@ -1013,26 +1091,16 @@ TreeCtrlGetLayout(
      * called "TreeCtrl.TreeCtrlHeading" by default. The actual layout specification
      * was defined by Ttk_RegisterLayout("TreeCtrlHeading") below. */
     newLayout = GetSublayout(interp, themePtr, treeLayout,
-	    ".TreeCtrlHeading", tree->headingOptionTable,
-	    &tree->headingLayout);
+	    ".TreeCtrlHeading", themeData->headingOptionTable,
+	    &themeData->headingLayout);
     if (newLayout == NULL)
 	return NULL;
 
     newLayout = GetSublayout(interp, themePtr, treeLayout,
-	    ".TreeCtrlButton", tree->buttonOptionTable,
-	    &tree->buttonLayout);
+	    ".TreeCtrlButton", themeData->buttonOptionTable,
+	    &themeData->buttonLayout);
     if (newLayout == NULL)
 	return NULL;
-
-    /* Size of opened and closed buttons. */
-    eTtk_LayoutSize(tree->buttonLayout, TTK_STATE_OPEN,
-	    &tree->themeButtonWidth[1], &tree->themeButtonHeight[1]);
-    eTtk_LayoutSize(tree->buttonLayout, 0,
-	    &tree->themeButtonWidth[0], &tree->themeButtonHeight[0]);
-    dbwin("TreeCtrlGetLayout %s: button size open w=%d h=%d closed w=%d h=%d\n",
-	    Tk_PathName(tree->tkwin),
-	    tree->themeButtonWidth[1], tree->themeButtonHeight[1],
-	    tree->themeButtonWidth[0], tree->themeButtonHeight[0]);
 
     return treeLayout;
 }
@@ -1043,21 +1111,46 @@ TreeCtrlDoLayout(
     )
 {
     TreeCtrl *tree = recordPtr;
-    Ttk_LayoutNode *clientNode = eTtk_LayoutFindNode(tree->layout, "client");
+    TreeThemeData themeData = tree->themeData;
+    Ttk_LayoutNode *node;
     Ttk_Box winBox = Ttk_WinBox(tree->tkwin);
     Ttk_State state = 0; /* ??? */
 
-    /* This seems to get called for every draw, even when the layout
-     * has not changed. */
-    dbwin("TreeCtrlDoLayout %s\n", Tk_PathName(tree->tkwin));
-
-    eTtk_PlaceLayout(tree->layout, state, winBox);
-
-    if (clientNode != NULL)
-	tree->clientBox = eTtk_LayoutNodeInternalParcel(tree->layout,
-		clientNode);
+    eTtk_PlaceLayout(themeData->layout, state, winBox);
+    node = eTtk_LayoutFindNode(themeData->layout, "client");
+    if (node != NULL)
+	tree->clientBox = eTtk_LayoutNodeInternalParcel(themeData->layout, node);
     else
 	tree->clientBox = winBox;
+
+    /* Size of opened and closed buttons. */
+    eTtk_LayoutSize(themeData->buttonLayout, TTK_STATE_OPEN,
+	    &themeData->buttonWidth[1], &themeData->buttonHeight[1]);
+    eTtk_LayoutSize(themeData->buttonLayout, 0,
+	    &themeData->buttonWidth[0], &themeData->buttonHeight[0]);
+
+    node = eTtk_LayoutFindNode(themeData->buttonLayout, "indicator");
+    if (node != NULL) {
+	Ttk_Box box1, box2;
+
+	box1 = Ttk_MakeBox(0, 0, themeData->buttonWidth[1], themeData->buttonHeight[1]);
+	eTtk_PlaceLayout(themeData->buttonLayout, TTK_STATE_OPEN, box1);
+	box2 = eTtk_LayoutNodeInternalParcel(themeData->buttonLayout, node);
+	themeData->buttonPadding[1] = Ttk_MakePadding(box2.x, box2.y,
+		(box1.x + box1.width) - (box2.x + box2.width),
+		(box1.y + box1.height) - (box2.y + box2.height));
+
+	box1 = Ttk_MakeBox(0, 0, themeData->buttonWidth[0], themeData->buttonHeight[0]);
+	eTtk_PlaceLayout(themeData->buttonLayout, 0, box1);
+	box2 = eTtk_LayoutNodeInternalParcel(themeData->buttonLayout, node);
+	themeData->buttonPadding[0] = Ttk_MakePadding(box2.x, box2.y,
+		(box1.x + box1.width) - (box2.x + box2.width),
+		(box1.y + box1.height) - (box2.y + box2.height));
+
+    } else {
+	themeData->buttonPadding[1] = Ttk_MakePadding(0,0,0,0);
+	themeData->buttonPadding[0] = Ttk_MakePadding(0,0,0,0);
+    }
 }
 
 void
@@ -1065,16 +1158,15 @@ TreeTheme_Relayout(
     TreeCtrl *tree
     )
 {
+    TreeThemeData themeData = tree->themeData;
     Ttk_Theme themePtr = Ttk_GetCurrentTheme(tree->interp);
     Ttk_Layout newLayout = TreeCtrlGetLayout(tree->interp, themePtr, tree);
 
-    /* FIXME: free layout when tree destroyed */
-
     if (newLayout) {
-	if (tree->layout) {
-	    eTtk_FreeLayout(tree->layout);
+	if (themeData->layout) {
+	    eTtk_FreeLayout(themeData->layout);
 	}
-	tree->layout = newLayout;
+	themeData->layout = newLayout;
 	TreeCtrlDoLayout(tree);
     }
 }
@@ -1091,6 +1183,7 @@ TreeTheme_DrawBorders(
     Drawable drawable
     )
 {
+    TreeThemeData themeData = tree->themeData;
     Tk_Window tkwin = tree->tkwin;
     Ttk_Box clientBox = tree->clientBox;
     Ttk_Box winBox = Ttk_WinBox(tree->tkwin);
@@ -1109,7 +1202,7 @@ TreeTheme_DrawBorders(
 	return;
 
     if (left > 0 || top > 0)
-	eTtk_PlaceLayout(tree->layout, state, winBox);
+	eTtk_PlaceLayout(themeData->layout, state, winBox);
 
     if (left > 0 || right > 0) {
 	pixmapLR = Tk_GetPixmap(tree->display, Tk_WindowId(tkwin),
@@ -1121,34 +1214,10 @@ TreeTheme_DrawBorders(
 		Tk_Width(tkwin), MAX(top, bottom), Tk_Depth(tkwin));
     }
 
-    if (tree->debug.enable && tree->debug.display && tree->debug.drawColor) {
-	if (left > 0) {
-	    XFillRectangle(tree->display, Tk_WindowId(tkwin),
-		    tree->debug.gcDraw, 0, 0, left, Tk_Height(tkwin));
-	}
-	if (top > 0) {
-	    XFillRectangle(tree->display, Tk_WindowId(tkwin),
-		    tree->debug.gcDraw, 0, 0, Tk_Width(tkwin), top);
-	}
-	if (right > 0) {
-	    XFillRectangle(tree->display, Tk_WindowId(tkwin),
-		    tree->debug.gcDraw, clientBox.x + clientBox.width, 0, right, Tk_Height(tkwin));
-	}
-	if (bottom > 0) {
-	    XFillRectangle(tree->display, Tk_WindowId(tkwin),
-		    tree->debug.gcDraw, 0, clientBox.y + clientBox.height, Tk_Width(tkwin), bottom);
-	}
-	/* DisplayDelay */
-	if (tree->debug.displayDelay > 0) {
-#if !defined(WIN32) && !defined(MAC_TCL) && !defined(MAC_OSX_TK)
-	    XSync(tree->display, False);
-#endif
-	    Tcl_Sleep(tree->debug.displayDelay);
-	}
-    }
+    DebugDrawBorder(tree, 0, left, top, right, bottom);
 
     if (left > 0) {
-	eTtk_DrawLayout(tree->layout, state, pixmapLR);
+	eTtk_DrawLayout(themeData->layout, state, pixmapLR);
 	XCopyArea(tree->display, pixmapLR, drawable,
 		tree->copyGC, 0, 0,
 		left, Tk_Height(tkwin),
@@ -1156,7 +1225,7 @@ TreeTheme_DrawBorders(
     }
 
     if (top > 0) {
-	eTtk_DrawLayout(tree->layout, state, pixmapTB);
+	eTtk_DrawLayout(themeData->layout, state, pixmapTB);
 	XCopyArea(tree->display, pixmapTB, drawable,
 		tree->copyGC, 0, 0,
 		Tk_Width(tkwin), top,
@@ -1165,9 +1234,9 @@ TreeTheme_DrawBorders(
 
     if (right > 0) {
 	winBox.x -= winBox.width - right;
-	eTtk_PlaceLayout(tree->layout, state, winBox);
+	eTtk_PlaceLayout(themeData->layout, state, winBox);
 
-	eTtk_DrawLayout(tree->layout, state, pixmapLR);
+	eTtk_DrawLayout(themeData->layout, state, pixmapLR);
 	XCopyArea(tree->display, pixmapLR, drawable,
 		tree->copyGC, 0, 0,
 		right, Tk_Height(tkwin),
@@ -1177,9 +1246,9 @@ TreeTheme_DrawBorders(
     if (bottom > 0) {
 	winBox.x = 0;
 	winBox.y -= winBox.height - bottom;
-	eTtk_PlaceLayout(tree->layout, state, winBox);
+	eTtk_PlaceLayout(themeData->layout, state, winBox);
 
-	eTtk_DrawLayout(tree->layout, state, pixmapTB);
+	eTtk_DrawLayout(themeData->layout, state, pixmapTB);
 	XCopyArea(tree->display, pixmapTB, drawable,
 		tree->copyGC, 0, 0,
 		Tk_Width(tkwin), bottom,
@@ -1258,6 +1327,7 @@ static void TreeitemIndicatorSize(
     Tk_GetPixelsFromObj(NULL, tkwin, indicator->sizeObj, &size);
 
     *widthPtr = *heightPtr = size;
+    *paddingPtr = Ttk_MakePadding(0,0,0,0);
 }
 
 static void TreeitemIndicatorDraw(
@@ -1271,6 +1341,9 @@ static void TreeitemIndicatorDraw(
     XGCValues gcValues;
     unsigned long gcMask;
     GC buttonGC;
+    Ttk_Padding padding = Ttk_MakePadding(0,0,0,0);
+
+    b = Ttk_PadBox(b, padding);
 
     Tk_GetPixelsFromObj(NULL, tkwin, indicator->sizeObj, &buttonSize);
     Tk_GetPixelsFromObj(NULL, tkwin, indicator->thicknessObj, &buttonThickness);
@@ -1351,7 +1424,35 @@ TTK_BEGIN_LAYOUT(TreeCtrlLayout)
 	    TTK_NODE("TreeCtrl.client", TTK_FILL_BOTH)))
 TTK_END_LAYOUT
 
-int TreeTheme_Init(Tcl_Interp *interp)
+void TreeTheme_ThemeChanged(TreeCtrl *tree)
+{
+}
+
+int TreeTheme_Init(TreeCtrl *tree)
+{
+    tree->themeData = (TreeThemeData) ckalloc(sizeof(TreeThemeData_));
+    memset(tree->themeData, '\0', sizeof(TreeThemeData_));
+
+    return TCL_OK;
+}
+
+int TreeTheme_Free(TreeCtrl *tree)
+{
+    TreeThemeData themeData = tree->themeData;
+
+    if (themeData != NULL) {
+	if (themeData->layout != NULL)
+	    eTtk_FreeLayout(themeData->layout);
+	if (themeData->buttonLayout != NULL)
+	    eTtk_FreeLayout(themeData->buttonLayout);
+	if (themeData->headingLayout != NULL)
+	    eTtk_FreeLayout(themeData->headingLayout);
+	ckfree((char *) themeData);
+    }
+    return TCL_OK;
+}
+
+int TreeTheme_InitInterp(Tcl_Interp *interp)
 {
     Ttk_Theme theme = Ttk_GetDefaultTheme(interp);
 

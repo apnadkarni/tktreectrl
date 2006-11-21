@@ -33,8 +33,7 @@ struct MStyle
 
 /*
  * A data structure of the following type is kept for each instance style.
- * Instance styles are created when a style is assigned to an item-column
- * or rowlabel.
+ * Instance styles are created when a style is assigned to an item-column.
  */
 struct IStyle
 {
