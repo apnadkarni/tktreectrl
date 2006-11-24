@@ -14,6 +14,7 @@
 #define W2Cy(y) ((y) + tree->yOrigin)
 #define DW2Cy(y) ((y) + dInfo->yOrigin)
 
+/* This #define extends -itembackground colors into the whitespace region. */
 #define COMPLEX_WHITESPACE
 
 typedef struct TreeDInfo_ TreeDInfo_;
@@ -55,7 +56,11 @@ struct Range
 typedef struct DItemArea {
     int x;			/* Where it should be drawn, window coords. */
     int width;			/* Current width. */
+#ifdef DIRTY_REGION
+    TkRegion dirty;
+#else
     int dirty[4];		/* Dirty area in item coords. */
+#endif
 #define DITEM_DIRTY 0x0001
 #define DITEM_ALL_DIRTY 0x0002
     int flags;
@@ -2368,6 +2373,9 @@ DItem_Alloc(
 {
     TreeDInfo dInfo = tree->dInfo;
     DItem *dItem;
+#ifdef DIRTY_REGION
+    TkRegion rgn, rgnL, rgnR;
+#endif
 
     dItem = (DItem *) TreeItem_GetDInfo(tree, rItem->item);
     if (dItem != NULL)
@@ -2377,9 +2385,19 @@ DItem_Alloc(
     if (dInfo->dItemFree != NULL) {
 	dItem = dInfo->dItemFree;
 	dInfo->dItemFree = dItem->next;
+#ifdef DIRTY_REGION
+	rgn = dItem->area.dirty;
+	rgnL = dItem->left.dirty;
+	rgnR = dItem->right.dirty;
+#endif
     /* No free DItems, alloc a new one */
     } else {
 	dItem = (DItem *) ckalloc(sizeof(DItem));
+#ifdef DIRTY_REGION
+	rgn = TkCreateRegion();
+	rgnL = TkCreateRegion();
+	rgnR = TkCreateRegion();
+#endif
     }
     memset(dItem, '\0', sizeof(DItem));
 #ifdef TREECTRL_DEBUG
@@ -2389,6 +2407,11 @@ DItem_Alloc(
     dItem->area.flags = DITEM_DIRTY | DITEM_ALL_DIRTY;
     dItem->left.flags = DITEM_DIRTY | DITEM_ALL_DIRTY;
     dItem->right.flags = DITEM_DIRTY | DITEM_ALL_DIRTY;
+#ifdef DIRTY_REGION
+    dItem->area.dirty = rgn;
+    dItem->left.dirty = rgnL;
+    dItem->right.dirty = rgnR;
+#endif
     TreeItem_SetDInfo(tree, rItem->item, (TreeItemDInfo) dItem);
     return dItem;
 }
@@ -3435,6 +3458,70 @@ skipLock:
     dInfo->flags &= ~DINFO_INVALIDATE;
 }
 
+#ifdef DIRTY_REGION
+
+static int
+InvalidateDItemRegion(
+    DItem *dItem,		/* Item to mark dirty. */
+    DItemArea *area,
+    int itemX,			/* x-coordinate of item. */
+    int itemY,			/* y-coordinate of item. */
+    TkRegion dirtyRgn		/* Region to mark as dirty. */
+    )
+{
+    XRectangle rect;
+    TkRegion rgn;
+
+    /* Create a region as big as the visible part of the item. */
+    rect.x = 0;
+    rect.y = 0;
+    rect.width = area->width;
+    rect.height = dItem->height;
+    rgn = TkCreateRegion();
+    TkUnionRectWithRegion(&rect, rgn, rgn);
+
+    Tk_OffsetRegion(dirtyRgn, -itemX, -itemY);
+    TkIntersectRegion(dirtyRgn, rgn, rgn);
+    Tk_OffsetRegion(dirtyRgn, itemX, itemY);
+
+    Tk_UnionRegion(area->dirty, rgn, area->dirty);
+
+    TkClipBox(rgn, &rect);
+    TkDestroyRegion(rgn);
+
+    return rect.width && rect.height;
+}
+
+static void
+InvalidateDItemRect(
+    DItem *dItem,		/* Item to mark dirty. */
+    DItemArea *area,
+    int itemX,			/* x-coordinate of item. */
+    int itemY,			/* y-coordinate of item. */
+    int dirtyX,			/* Left edge of area to mark as dirty. */
+    int dirtyY,			/* Top edge of area to mark as dirty. */
+    int dirtyWidth,		/* Width of area to mark as dirty. */
+    int dirtyHeight		/* Height of area to mark as dirty. */
+    )
+{
+    XRectangle rect;
+    TkRegion rgn;
+
+    rect.x = dirtyX;
+    rect.y = dirtyY;
+    rect.width = dirtyWidth;
+    rect.height = dirtyHeight;
+
+    rgn = TkCreateRegion();
+    TkUnionRectWithRegion(&rect, rgn, rgn);
+
+    InvalidateDItemRegion(dItem, area, itemX, itemY, rgn);
+
+    TkDestroyRegion(rgn);
+}
+
+#else /* DIRTY_REGION */
+
 /*
  *--------------------------------------------------------------
  *
@@ -3524,6 +3611,8 @@ InvalidateDItemY(
 	    area->dirty[BOTTOM] = y2;
     }
 }
+
+#endif /* DIRTY_REGION */
 
 /*
  *--------------------------------------------------------------
@@ -3699,35 +3788,77 @@ ScrollVerticalComplex(
 	    /* If an item was partially visible, invalidate the exposed area */
 	    if ((dItem->oldY < minY) && (offset > 0)) {
 		if (!dInfo->empty && dInfo->rangeFirst != NULL) {
+#ifdef DIRTY_REGION
+		    InvalidateDItemRect(dItem, &dItem->area,
+			    dItem->oldX, dItem->oldY,
+			    oldX, dItem->oldY,
+			    width, minY - dItem->oldY);
+#else
 		    InvalidateDItemX(dItem, &dItem->area, dItem->oldX, oldX, width);
 		    InvalidateDItemY(dItem, &dItem->area, dItem->oldY, dItem->oldY, minY - dItem->oldY);
+#endif
 		    dItem->area.flags |= DITEM_DIRTY;
 		}
 		if (!dInfo->emptyL) {
+#ifdef DIRTY_REGION
+		    InvalidateDItemRect(dItem, &dItem->left,
+			    dItem->left.x, dItem->oldY,
+			    oldX, dItem->oldY,
+			    width, minY - dItem->oldY);
+#else
 		    InvalidateDItemX(dItem, &dItem->left, dItem->left.x, oldX, width);
 		    InvalidateDItemY(dItem, &dItem->left, dItem->oldY, dItem->oldY, minY - dItem->oldY);
+#endif
 		    dItem->left.flags |= DITEM_DIRTY;
 		}
 		if (!dInfo->emptyR) {
+#ifdef DIRTY_REGION
+		    InvalidateDItemRect(dItem, &dItem->right,
+			    dItem->right.x, dItem->oldY,
+			    oldX, dItem->oldY,
+			    width, minY - dItem->oldY);
+#else
 		    InvalidateDItemX(dItem, &dItem->right, dItem->right.x, oldX, width);
 		    InvalidateDItemY(dItem, &dItem->right, dItem->oldY, dItem->oldY, minY - dItem->oldY);
+#endif
 		    dItem->right.flags |= DITEM_DIRTY;
 		}
 	    }
 	    if ((dItem->oldY + dItem->height > maxY) && (offset < 0)) {
 		if (!dInfo->empty && dInfo->rangeFirst != NULL) {
+#ifdef DIRTY_REGION
+		    InvalidateDItemRect(dItem, &dItem->area,
+			    dItem->oldX, dItem->oldY,
+			    oldX, maxY,
+			    width, maxY - dItem->oldY + dItem->height);
+#else
 		    InvalidateDItemX(dItem, &dItem->area, dItem->oldX, oldX, width);
 		    InvalidateDItemY(dItem, &dItem->area, dItem->oldY, maxY, maxY - dItem->oldY + dItem->height);
+#endif
 		    dItem->area.flags |= DITEM_DIRTY;
 		}
 		if (!dInfo->emptyL) {
+#ifdef DIRTY_REGION
+		    InvalidateDItemRect(dItem, &dItem->left,
+			    dItem->left.x, dItem->oldY,
+			    oldX, maxY,
+			    width, maxY - dItem->oldY + dItem->height);
+#else
 		    InvalidateDItemX(dItem, &dItem->left, dItem->left.x, oldX, width);
 		    InvalidateDItemY(dItem, &dItem->left, dItem->oldY, maxY, maxY - dItem->oldY + dItem->height);
+#endif
 		    dItem->left.flags |= DITEM_DIRTY;
 		}
 		if (!dInfo->emptyR) {
+#ifdef DIRTY_REGION
+		    InvalidateDItemRect(dItem, &dItem->right,
+			    dItem->right.x, dItem->oldY,
+			    oldX, maxY,
+			    width, maxY - dItem->oldY + dItem->height);
+#else
 		    InvalidateDItemX(dItem, &dItem->right, dItem->right.x, oldX, width);
 		    InvalidateDItemY(dItem, &dItem->right, dItem->oldY, maxY, maxY - dItem->oldY + dItem->height);
+#endif
 		    dItem->right.flags |= DITEM_DIRTY;
 		}
 	    }
@@ -3745,18 +3876,38 @@ ScrollVerticalComplex(
 		    (dItem2->oldY + dItem2->height > y) &&
 		    (dItem2->oldY < y + height)) {
 		if (!dInfo->empty && dInfo->rangeFirst != NULL) {
+#ifdef DIRTY_REGION
+		    InvalidateDItemRect(dItem2, &dItem2->area,
+			    dItem2->oldX, dItem2->oldY,
+			    oldX, y,
+			    width, height);
+#else
 		    InvalidateDItemX(dItem2, &dItem2->area, dItem2->oldX, oldX, width);
 		    InvalidateDItemY(dItem2, &dItem2->area, dItem2->oldY, y, height);
+#endif
 		    dItem2->area.flags |= DITEM_DIRTY;
 		}
 		if (!dInfo->emptyL) {
+#ifdef DIRTY_REGION
+		    InvalidateDItemRect(dItem2, &dItem2->left,
+			    dItem2->left.x, dItem2->oldY,
+			    oldX, y, width, height);
+#else
 		    InvalidateDItemX(dItem2, &dItem2->left, dItem2->left.x, oldX, width);
 		    InvalidateDItemY(dItem2, &dItem2->left, dItem2->oldY, y, height);
+#endif
 		    dItem2->left.flags |= DITEM_DIRTY;
 		}
 		if (!dInfo->emptyR) {
+#ifdef DIRTY_REGION
+		    InvalidateDItemRect(dItem2, &dItem2->right,
+			    dItem2->right.x, dItem2->oldY,
+			    oldX, y,
+			    width, height);
+#else
 		    InvalidateDItemX(dItem2, &dItem2->right, dItem2->right.x, oldX, width);
 		    InvalidateDItemY(dItem2, &dItem2->right, dItem2->oldY, y, height);
+#endif
 		    dItem2->right.flags |= DITEM_DIRTY;
 		}
 	    }
@@ -4119,13 +4270,27 @@ ScrollHorizontalComplex(
 	while (1) {
 	    /* If an item was partially visible, invalidate the exposed area */
 	    if ((dItem->oldX < minX) && (offset > 0)) {
+#ifdef DIRTY_REGION
+		InvalidateDItemRect(dItem, &dItem->area,
+			dItem->oldX, oldY,
+			dItem->oldX, oldY,
+			minX - dItem->oldX, height);
+#else
 		InvalidateDItemX(dItem, &dItem->area, dItem->oldX, dItem->oldX, minX - dItem->oldX);
 		InvalidateDItemY(dItem, &dItem->area, oldY, oldY, height);
+#endif
 		dItem->area.flags |= DITEM_DIRTY;
 	    }
 	    if ((dItem->oldX + dItem->area.width > maxX) && (offset < 0)) {
+#ifdef DIRTY_REGION
+		InvalidateDItemRect(dItem, &dItem->area,
+			dItem->oldX, oldY,
+			maxX, oldY,
+			maxX - dItem->oldX + dItem->area.width, height);
+#else
 		InvalidateDItemX(dItem, &dItem->area, dItem->oldX, maxX, maxX - dItem->oldX + dItem->area.width);
 		InvalidateDItemY(dItem, &dItem->area, oldY, oldY, height);
+#endif
 		dItem->area.flags |= DITEM_DIRTY;
 	    }
 	    dItem->oldX = dItem->area.x;
@@ -4141,8 +4306,15 @@ ScrollHorizontalComplex(
 	    if (!(dItem2->area.flags & DITEM_ALL_DIRTY) &&
 		    (dItem2->oldX + dItem2->area.width > x) &&
 		    (dItem2->oldX < x + width)) {
+#ifdef DIRTY_REGION
+		InvalidateDItemRect(dItem2, &dItem2->area,
+			dItem2->oldX, oldY,
+			x, oldY,
+			width, height);
+#else
 		InvalidateDItemX(dItem2, &dItem2->area, dItem2->oldX, x, width);
 		InvalidateDItemY(dItem2, &dItem2->area, oldY, oldY, height);
+#endif
 		dItem2->area.flags |= DITEM_DIRTY;
 	    }
 	}
@@ -5026,6 +5198,9 @@ DisplayDItem(
     TreeDInfo dInfo = tree->dInfo;
     Tk_Window tkwin = tree->tkwin;
     int left, top, right, bottom;
+#ifdef DIRTY_REGION
+    TkRegion dirtyRgn = None;
+#endif
 
     left = area->x;
     right = left + area->width;
@@ -5033,10 +5208,20 @@ DisplayDItem(
     bottom = top + dItem->height;
 
     if (!(area->flags & DITEM_ALL_DIRTY)) {
+#ifdef DIRTY_REGION
+	XRectangle box;
+	TkClipBox(area->dirty, &box);
+	left += box.x;
+	right = area->x + box.x + box.width;
+	top += box.y;
+	bottom = dItem->y + box.y + box.height;
+	dirtyRgn = area->dirty;
+#else
 	left += area->dirty[LEFT];
 	right = area->x + area->dirty[RIGHT];
 	top += area->dirty[TOP];
 	bottom = dItem->y + area->dirty[BOTTOM];
+#endif
     }
 
     area->flags &= ~(DITEM_DIRTY | DITEM_ALL_DIRTY);
@@ -5050,9 +5235,16 @@ DisplayDItem(
     if (bottom > bounds[3])
 	bottom = bounds[3];
 
-    if (right <= left || bottom <= top)
+    if (right <= left || bottom <= top) {
+#ifdef DIRTY_REGION
+	TkSubtractRegion(area->dirty, area->dirty, area->dirty);
+#endif
 	return 0;
+    }
 
+#ifdef DIRTY_REGION
+    if (dirtyRgn == None)
+#endif
     if (tree->debug.enable && tree->debug.display && tree->debug.drawColor) {
 	XFillRectangle(tree->display, Tk_WindowId(tkwin),
 		tree->debug.gcDraw, left, top, right - left, bottom - top);
@@ -5068,22 +5260,57 @@ DisplayDItem(
 	    dInfo->dirty[BOTTOM] = MAX(dInfo->dirty[BOTTOM], bottom);
 	}
 
+	if (tree->debug.enable && tree->debug.display && tree->debug.drawColor) {
+	    XFillRectangle(tree->display, pixmap,
+		    tree->debug.gcDraw, 0, 0, right - left, bottom - top);
+	}
+
 	/* The top-left corner of the drawable is at this
 	* point in the canvas */
 	tree->drawableXOrigin = left + tree->xOrigin;
 	tree->drawableYOrigin = top + tree->yOrigin;
 
+#ifdef DIRTY_REGION
+	/* Convert dirtyRgn from item coords to drawable coords. */
+	if (dirtyRgn !=  None)
+	    Tk_OffsetRegion(dirtyRgn,
+		area->x - left,
+		dItem->y - top);
+#endif
+
 	TreeItem_Draw(tree, dItem->item, lock,
 		area->x - left, dItem->y - top,
 		area->width, dItem->height,
 		pixmap,
+#ifdef DIRTY_REGION
+		dirtyRgn,
+#endif
 		0, right - left,
 		dItem->index);
+
+#ifdef DIRTY_REGION
+	if (dirtyRgn !=  None) {
+	    /* drawable -> window coords */
+	    Tk_OffsetRegion(dirtyRgn,
+		tree->drawableXOrigin - tree->xOrigin,
+		tree->drawableYOrigin - tree->yOrigin);
+	    TkSetRegion(tree->display, tree->copyGC, dirtyRgn);
+	    if (tree->debug.enable && tree->debug.display && tree->debug.drawColor) {
+		Tk_FillRegion(tree->display, Tk_WindowId(tkwin), tree->debug.gcDraw,
+			dirtyRgn);
+		DisplayDelay(tree);
+	    }
+	}
+#endif
 	XCopyArea(tree->display, pixmap, drawable,
 		tree->copyGC,
 		0, 0,
 		right - left, bottom - top,
 		left, top);
+#ifdef DIRTY_REGION
+	if (dirtyRgn !=  None)
+	    XSetClipMask(tree->display, tree->copyGC, None);
+#endif
     } else {
 
 	/* The top-left corner of the drawable is at this
@@ -5091,15 +5318,30 @@ DisplayDItem(
 	tree->drawableXOrigin = tree->xOrigin;
 	tree->drawableYOrigin = tree->yOrigin;
 
+#ifdef DIRTY_REGION
+	/* Convert dirtyRgn from item coords to drawable coords. */
+	if (dirtyRgn !=  None)
+	    Tk_OffsetRegion(dirtyRgn,
+		area->x,
+		dItem->y);
+#endif
+
 	TreeItem_Draw(tree, dItem->item,
 		lock,
 		area->x,
 		dItem->y,
 		area->width, dItem->height,
 		drawable,
+#ifdef DIRTY_REGION
+		dirtyRgn,
+#endif
 		left, right,
 		dItem->index);
     }
+
+#ifdef DIRTY_REGION
+    TkSubtractRegion(area->dirty, area->dirty, area->dirty);
+#endif
 
     return 1;
 }
@@ -6604,18 +6846,39 @@ Tree_InvalidateItemDInfo(
 		    case COLUMN_LOCK_NONE:
 			if (tree->columnCountVis == 1)
 			    width = dItem->area.width;
+#ifdef DIRTY_REGION
+			InvalidateDItemRect(dItem, &dItem->area,
+				0, dItem->y,
+				left, dItem->y,
+				width, dItem->height);
+#else
 			InvalidateDItemX(dItem, &dItem->area, 0, left, width);
 			InvalidateDItemY(dItem, &dItem->area, dItem->y, dItem->y, dItem->height);
+#endif
 			dItem->area.flags |= DITEM_DIRTY;
 			break;
 		    case COLUMN_LOCK_LEFT:
+#ifdef DIRTY_REGION
+			InvalidateDItemRect(dItem, &dItem->left,
+				0, 0,
+				left, 0,
+				width, dItem->height);
+#else
 			InvalidateDItemX(dItem, &dItem->left, 0, left, width);
 			InvalidateDItemY(dItem, &dItem->left, 0, 0, dItem->height);
+#endif
 			dItem->left.flags |= DITEM_DIRTY;
 			break;
 		    case COLUMN_LOCK_RIGHT:
+#ifdef DIRTY_REGION
+			InvalidateDItemRect(dItem, &dItem->right,
+				0, 0,
+				left, 0,
+				width, dItem->height);
+#else
 			InvalidateDItemX(dItem, &dItem->right, 0, left, width);
 			InvalidateDItemY(dItem, &dItem->right, 0, 0, dItem->height);
+#endif
 			dItem->right.flags |= DITEM_DIRTY;
 			break;
 		}
@@ -6786,22 +7049,43 @@ Tree_InvalidateArea(
 		!(dItem->area.flags & DITEM_ALL_DIRTY) &&
 		(x2 > dItem->area.x) && (x1 < dItem->area.x + dItem->area.width) &&
 		(y2 > dItem->y) && (y1 < dItem->y + dItem->height)) {
+#ifdef DIRTY_REGION
+	    InvalidateDItemRect(dItem, &dItem->area,
+		    dItem->area.x, dItem->y,
+		    x1, y1,
+		    x2 - x1, y2 - y1);
+#else
 	    InvalidateDItemX(dItem, &dItem->area, dItem->area.x, x1, x2 - x1);
 	    InvalidateDItemY(dItem, &dItem->area, dItem->y, y1, y2 - y1);
+#endif
 	    dItem->area.flags |= DITEM_DIRTY;
 	}
 	if (!dInfo->emptyL && !(dItem->left.flags & DITEM_ALL_DIRTY) &&
 		(x2 > dInfo->boundsL[0]) && (x1 < dInfo->boundsL[2]) &&
 		(y2 > dItem->y) && (y1 < dItem->y + dItem->height)) {
+#ifdef DIRTY_REGION
+	    InvalidateDItemRect(dItem, &dItem->left,
+		    dItem->left.x, dItem->y,
+		    x1, y1,
+		    x2 - x1, y2 - y1);
+#else
 	    InvalidateDItemX(dItem, &dItem->left, dItem->left.x, x1, x2 - x1);
 	    InvalidateDItemY(dItem, &dItem->left, dItem->y, y1, y2 - y1);
+#endif
 	    dItem->left.flags |= DITEM_DIRTY;
 	}
 	if (!dInfo->emptyR && !(dItem->right.flags & DITEM_ALL_DIRTY) &&
 		(x2 > dInfo->boundsR[0]) && (x1 < dInfo->boundsR[2]) &&
 		(y2 > dItem->y) && (y1 < dItem->y + dItem->height)) {
+#ifdef DIRTY_REGION
+	    InvalidateDItemRect(dItem, &dItem->right,
+		    dItem->right.x, dItem->y,
+		    x1, y1,
+		    x2 - x1, y2 - y1);
+#else
 	    InvalidateDItemX(dItem, &dItem->right, dItem->right.x, x1, x2 - x1);
 	    InvalidateDItemY(dItem, &dItem->right, dItem->y, y1, y2 - y1);
+#endif
 	    dItem->right.flags |= DITEM_DIRTY;
 	}
 	dItem = dItem->next;
@@ -6888,6 +7172,12 @@ Tree_InvalidateRegion(
     dItem = dInfo->dItem;
     while (dItem != NULL) {
 	if ((!dInfo->empty && dInfo->rangeFirst != NULL) && !(dItem->area.flags & DITEM_ALL_DIRTY)) {
+#ifdef DIRTY_REGION
+	    if (InvalidateDItemRegion(dItem, &dItem->area,
+		    dItem->area.x, dItem->y,
+		    region))
+		dItem->area.flags |= DITEM_DIRTY;
+#else
 	    rect.x = dItem->area.x;
 	    rect.y = dItem->y;
 	    rect.width = dItem->area.width;
@@ -6901,8 +7191,15 @@ Tree_InvalidateRegion(
 		InvalidateDItemY(dItem, &dItem->area, dItem->y, rect.y, rect.height);
 		dItem->area.flags |= DITEM_DIRTY;
 	    }
+#endif
 	}
 	if (!dInfo->emptyL && !(dItem->left.flags & DITEM_ALL_DIRTY)) {
+#ifdef DIRTY_REGION
+	    if (InvalidateDItemRegion(dItem, &dItem->left,
+		    dItem->left.x, dItem->y,
+		    region))
+		dItem->left.flags |= DITEM_DIRTY;
+#else
 	    rect.x = dItem->left.x;
 	    rect.y = dItem->y;
 	    rect.width = dItem->left.width;
@@ -6916,8 +7213,15 @@ Tree_InvalidateRegion(
 		InvalidateDItemY(dItem, &dItem->left, dItem->y, rect.y, rect.height);
 		dItem->left.flags |= DITEM_DIRTY;
 	    }
+#endif
 	}
 	if (!dInfo->emptyR && !(dItem->right.flags & DITEM_ALL_DIRTY)) {
+#ifdef DIRTY_REGION
+	    if (InvalidateDItemRegion(dItem, &dItem->right,
+		    dItem->right.x, dItem->y,
+		    region))
+		dItem->right.flags |= DITEM_DIRTY;
+#else
 	    rect.x = dItem->right.x;
 	    rect.y = dItem->y;
 	    rect.width = dItem->right.width;
@@ -6931,6 +7235,7 @@ Tree_InvalidateRegion(
 		InvalidateDItemY(dItem, &dItem->right, dItem->y, rect.y, rect.height);
 		dItem->right.flags |= DITEM_DIRTY;
 	    }
+#endif
 	}
 	dItem = dItem->next;
     }
@@ -7102,11 +7407,21 @@ TreeDInfo_Free(
 	ckfree((char *) dInfo->rangeLock);
     while (dInfo->dItem != NULL) {
 	DItem *next = dInfo->dItem->next;
+#ifdef DIRTY_REGION
+	TkDestroyRegion(dInfo->dItem->area.dirty);
+	TkDestroyRegion(dInfo->dItem->left.dirty);
+	TkDestroyRegion(dInfo->dItem->right.dirty);
+#endif
 	WFREE(dInfo->dItem, DItem);
 	dInfo->dItem = next;
     }
     while (dInfo->dItemFree != NULL) {
 	DItem *next = dInfo->dItemFree->next;
+#ifdef DIRTY_REGION
+	TkDestroyRegion(dInfo->dItemFree->area.dirty);
+	TkDestroyRegion(dInfo->dItemFree->left.dirty);
+	TkDestroyRegion(dInfo->dItemFree->right.dirty);
+#endif
 	WFREE(dInfo->dItemFree, DItem);
 	dInfo->dItemFree = next;
     }
@@ -7167,6 +7482,7 @@ DumpDInfo(
 	    if (dItem->item == NULL) {
 		DStringAppendf(&dString, "    item NULL\n");
 	    } else {
+#ifndef DIRTY_REGION
 		DStringAppendf(&dString, "    item %d x,y,w,h %d,%d,%d,%d dirty %d,%d,%d,%d flags %0X\n",
 			TreeItem_GetID(tree, dItem->item),
 			dItem->area.x, dItem->y, dItem->area.width, dItem->height,
@@ -7181,6 +7497,7 @@ DumpDInfo(
 			dItem->right.dirty[LEFT], dItem->right.dirty[TOP],
 			dItem->right.dirty[RIGHT], dItem->right.dirty[BOTTOM],
 			dItem->right.flags);
+#endif
 	    }
 	    dItem = dItem->next;
 	}

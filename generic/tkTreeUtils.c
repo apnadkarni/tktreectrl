@@ -881,6 +881,38 @@ Tk_OffsetRegion(
 /*
  *----------------------------------------------------------------------
  *
+ * Tk_UnionRegion --
+ *
+ *	Compute the union of two regions.
+ *
+ * Results:
+ *	None.
+ *
+ * Side effects:
+ *	None.
+ *
+ *----------------------------------------------------------------------
+ */
+
+void
+Tk_UnionRegion(
+    TkRegion sra,
+    TkRegion srb,
+    TkRegion dr_return
+    )
+{
+#ifdef WIN32
+    CombineRgn((HRGN) dr_return, (HRGN) sra, (HRGN) srb, RGN_OR);
+#elif defined(MAC_TCL) || defined(MAC_OSX_TK)
+    UnionRgn((RgnHandle) sra, (RgnHandle) srb, (RgnHandle) dr_return);
+#else
+    XUnionRegion((Region) sra, (Region) srb, (Region) dr_return);
+#endif
+}
+
+/*
+ *----------------------------------------------------------------------
+ *
  * Tree_ScrollWindow --
  *
  *	Wrapper around TkScrollWindow() to fix an apparent bug with the

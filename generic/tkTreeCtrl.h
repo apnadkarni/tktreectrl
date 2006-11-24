@@ -36,6 +36,7 @@
 #define SELECTION_VISIBLE
 #define ALLOC_HAX
 #define DEPRECATED
+#define DIRTY_REGION
 
 typedef struct TreeCtrl TreeCtrl;
 typedef struct TreeColumn_ *TreeColumn;
@@ -510,7 +511,11 @@ extern int TreeItem_TotalHeight(TreeCtrl *tree, TreeItem self);
 extern void TreeItem_InvalidateHeight(TreeCtrl *tree, TreeItem self);
 extern void TreeItem_SpansInvalidate(TreeCtrl *tree, TreeItem item_);
 extern int *TreeItem_GetSpans(TreeCtrl *tree, TreeItem item_);
+#ifdef DIRTY_REGION
+extern void TreeItem_Draw(TreeCtrl *tree, TreeItem self, int lock, int x, int y, int width, int height, Drawable drawable, TkRegion dirtyRgn, int minX, int maxX, int index);
+#else
 extern void TreeItem_Draw(TreeCtrl *tree, TreeItem self, int lock, int x, int y, int width, int height, Drawable drawable, int minX, int maxX, int index);
+#endif
 extern void TreeItem_DrawLines(TreeCtrl *tree, TreeItem self, int x, int y, int width, int height, Drawable drawable);
 extern void TreeItem_DrawButton(TreeCtrl *tree, TreeItem self, int x, int y, int width, int height, Drawable drawable);
 extern int TreeItem_ReallyVisible(TreeCtrl *tree, TreeItem self);

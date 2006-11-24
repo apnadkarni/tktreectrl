@@ -4014,6 +4014,9 @@ SpanWalkProc_Draw(
     int i, x;
     struct {
 	Drawable drawable;
+#ifdef DIRTY_REGION
+	TkRegion dirtyRgn;
+#endif
 	int minX;
 	int maxX;
 	int index;
@@ -4023,6 +4026,14 @@ SpanWalkProc_Draw(
     if ((drawArgs->x >= data->maxX) ||
 	    (drawArgs->x + drawArgs->width <= data->minX))
 	return 0;
+
+#ifdef DIRTY_REGION
+    if ((data->dirtyRgn != None) && (TkRectInRegion(data->dirtyRgn,
+	    drawArgs->x,
+	    drawArgs->y,
+	    drawArgs->width, drawArgs->height) == RectangleOut))
+	return 0;
+#endif
 
     drawArgs->drawable = data->drawable;
 
@@ -4090,6 +4101,9 @@ TreeItem_Draw(
     int x, int y,		/* Drawable coordinates of the item. */
     int width, int height,	/* Total size of the item. */
     Drawable drawable,		/* Where to draw. */
+#ifdef DIRTY_REGION
+    TkRegion dirtyRgn,
+#endif
     int minX, int maxX,		/* Left/right edge that needs to be drawn. */
     int index			/* Used to select a color from a
 				 * tree-column's -itembackground option. */
@@ -4097,12 +4111,18 @@ TreeItem_Draw(
 {
     struct {
 	Drawable drawable;
+#ifdef DIRTY_REGION
+	TkRegion dirtyRgn;
+#endif
 	int minX;
 	int maxX;
 	int index;
     } clientData;
 
     clientData.drawable = drawable;
+#ifdef DIRTY_REGION
+    clientData.dirtyRgn = dirtyRgn;
+#endif
     clientData.minX = minX;
     clientData.maxX = maxX;
     clientData.index = index;
