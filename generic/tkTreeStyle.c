@@ -11,7 +11,17 @@
 #include "tkTreeCtrl.h"
 #include "tkTreeElem.h"
 
+/* This is the roundUp argument to AllocHax_CAlloc. */
 #define ELEMENT_LINK_ROUND 1
+
+/* Define this for performance gain and increased memory usage. */
+/* When undefined, there is quite a performance hit when elements are
+ * squeezable and a style has less than its needed width. The memory
+ * savings are not too great when undefined. */
+#define CACHE_STYLE_SIZE
+
+/* Define this for performance gain and increased memory usage. */
+#define CACHE_ELEM_SIZE
 
 typedef struct MStyle MStyle;
 typedef struct IStyle IStyle;
@@ -24,11 +34,12 @@ typedef struct IElementLink IElementLink;
  */
 struct MStyle
 {
-    MStyle *master;
+    MStyle *master;		/* Always NULL. Needed to distinguish between
+				 * an MStyle and IStyle. */
     Tk_Uid name;
     int numElements;
     MElementLink *elements;	/* Array of master elements. */
-    int vertical;
+    int vertical;		/* -orient */
 };
 
 /*
@@ -44,10 +55,12 @@ struct IStyle
 #ifdef TREECTRL_DEBUG
     int neededState;
 #endif
+#ifdef CACHE_STYLE_SIZE
     int minWidth;
     int minHeight;
     int layoutWidth;
     int layoutHeight;
+#endif
 };
 
 #define ELF_eEXPAND_W 0x0001 /* expand Layout.ePadX[0] */
@@ -106,10 +119,12 @@ struct MElementLink
 struct IElementLink
 {
     Element *elem;		/* Master or instance element. */
+#ifdef CACHE_ELEM_SIZE
     int neededWidth;
     int neededHeight;
     int layoutWidth;
     int layoutHeight;
+#endif
 };
 
 static CONST char *MStyleUid = "MStyle", *IStyleUid = "IStyle",
@@ -135,6 +150,10 @@ struct Layout
     IElementLink *eLink;
     int useWidth;
     int useHeight;
+#ifndef CACHE_ELEM_SIZE
+    int neededWidth;
+    int neededHeight;
+#endif
     int x;		/* left of ePad */
     int y;		/* above ePad */
     int eWidth;		/* ePad + iPad + useWidth + iPad + ePad */
@@ -439,6 +458,82 @@ Style_DoExpandV(
 /*
  *----------------------------------------------------------------------
  *
+ * ElementLink_NeededSize --
+ *
+ *	Calculate the needed width and height of an element.
+ *
+ * Results:
+ *	None.
+ *
+ * Side effects:
+ *	None.
+ *
+ *----------------------------------------------------------------------
+ */
+
+static void
+Element_NeededSize(
+    TreeCtrl *tree,		/* Widget info. */
+    MElementLink *eLink1,	/* Master style layout info. */
+    Element *elem,		/* Master/Instance element. */
+    int state,			/* STATE_xxx flags. */
+    int *widthPtr,		/* Out: width */
+    int *heightPtr		/* Out: height */
+    )
+{
+    ElementArgs args;
+    int width, height;
+
+    if ((eLink1->fixedWidth >= 0) && (eLink1->fixedHeight >= 0))
+    {
+	width = eLink1->fixedWidth;
+	height = eLink1->fixedHeight;
+    }
+    else
+    {
+	args.tree = tree;
+	args.state = state;
+	args.elem = elem;
+	args.needed.fixedWidth = eLink1->fixedWidth;
+	args.needed.fixedHeight = eLink1->fixedHeight;
+	if (eLink1->maxWidth > eLink1->minWidth)
+	    args.needed.maxWidth = eLink1->maxWidth;
+	else
+	    args.needed.maxWidth = -1;
+	if (eLink1->maxHeight > eLink1->minHeight)
+	    args.needed.maxHeight = eLink1->maxHeight;
+	else
+	    args.needed.maxHeight = -1;
+	(*args.elem->typePtr->neededProc)(&args);
+	width = args.needed.width;
+	height = args.needed.height;
+
+	if (eLink1->fixedWidth >= 0)
+	    width = eLink1->fixedWidth;
+	else if ((eLink1->minWidth >= 0) &&
+	    (width < eLink1->minWidth))
+	    width = eLink1->minWidth;
+	else if ((eLink1->maxWidth >= 0) &&
+	    (width > eLink1->maxWidth))
+	    width = eLink1->maxWidth;
+
+	if (eLink1->fixedHeight >= 0)
+	    height = eLink1->fixedHeight;
+	else if ((eLink1->minHeight >= 0) &&
+	    (height < eLink1->minHeight))
+	    height = eLink1->minHeight;
+	else if ((eLink1->maxHeight >= 0) &&
+	    (height > eLink1->maxHeight))
+	    height = eLink1->maxHeight;
+    }
+
+    *widthPtr = width;
+    *heightPtr = height;
+}
+
+/*
+ *----------------------------------------------------------------------
+ *
  * Style_DoLayoutH --
  *
  *	Calculate the horizontal size and position of each element.
@@ -491,8 +586,15 @@ Style_DoLayoutH(
 	/* Width before squeezing/expanding */
 	if (eLink1->onion != NULL)
 	    layout->useWidth = 0;
-	else
+	else {
+#ifdef CACHE_ELEM_SIZE
 	    layout->useWidth = eLink2->neededWidth;
+#else
+	    Element_NeededSize(drawArgs->tree, eLink1, eLink2->elem,
+		    drawArgs->state, &layout->neededWidth, &layout->neededHeight);
+	    layout->useWidth = layout->neededWidth;
+#endif
+	}
 
 	for (j = 0; j < 2; j++)
 	{
@@ -1581,10 +1683,11 @@ Style_DoLayout(
     if (style->neededWidth == -1)
 	panic("Style_DoLayout(file %s line %d): style.neededWidth == -1",
 	    file, line);
+#ifdef CACHE_STYLE_STYLE
     if (style->minWidth + drawArgs->indent > drawArgs->width)
 	panic("Style_DoLayout(file %s line %d): style.minWidth + drawArgs->indent %d > drawArgs.width %d",
 	    file, line, style->minWidth + drawArgs->indent, drawArgs->width);
-
+#endif
     Style_DoLayoutH(drawArgs, layouts);
 
     for (i = 0; i < masterStyle->numElements; i++)
@@ -1602,7 +1705,11 @@ Style_DoLayout(
 	    continue;
 	}
 
+#ifdef CACHE_ELEM_SIZE
 	layout->useHeight = eLink2->neededHeight;
+#else
+	layout->useHeight = layout->neededHeight;
+#endif
 
 	/* If a Text Element is given less width than it needs (due to
 	 * -squeeze x layout), then it may wrap lines. This means
@@ -1613,6 +1720,7 @@ Style_DoLayout(
 	if (eLink1->fixedHeight >= 0)
 	    continue;
 
+#ifdef CACHE_ELEM_SIZE
 	/* Not squeezed */
 	if (layout->useWidth >= eLink2->neededWidth)
 	    continue;
@@ -1627,6 +1735,11 @@ Style_DoLayout(
 	/* */
 	if ((eLink2->layoutWidth == -1) &&
 	    (layout->useWidth >= eLink2->neededWidth))
+	    continue;
+#endif
+#else
+	/* Not squeezed */
+	if (layout->useWidth >= layout->neededWidth)
 	    continue;
 #endif
 	args.tree = tree;
@@ -1646,8 +1759,10 @@ Style_DoLayout(
 	else
 	    layout->useHeight = args.height.height;
 
+#ifdef CACHE_ELEM_SIZE
 	eLink2->layoutWidth = layout->useWidth;
 	eLink2->layoutHeight = layout->useHeight;
+#endif
     }
 
     if (neededV) {
@@ -1662,12 +1777,12 @@ Style_DoLayout(
  *
  * Style_NeededSize --
  *
- *	Calculate the total width and height of a style based only on
+ *	Calculate the width and height of a style based only on
  *	the requested size of each element.
  *
  * Results:
- *	The width and height. Return TRUE if any elements can be
- *	squeezed.
+ *	The width and height. The minimum width and height is equal to
+ *	the requested width and height minus any squeezing.
  *
  * Side effects:
  *	None.
@@ -1675,15 +1790,15 @@ Style_DoLayout(
  *----------------------------------------------------------------------
  */
 
-static int
+static void
 Style_NeededSize(
     TreeCtrl *tree,		/* Widget info. */
     IStyle *style,		/* Style to calculate size of. */
     int state,			/* STATE_xxx flags. */
     int *widthPtr,		/* Returned width. */
     int *heightPtr,		/* Returned height. */
-    int squeeze			/* If TRUE, all elements with -squeeze
-				 * layout are given minimum width. */
+    int *minWidthPtr,		/* Returned minimum width. */
+    int *minHeightPtr		/* Returned minimum height. */
     )
 {
     MStyle *masterStyle = style->master;
@@ -1693,7 +1808,7 @@ Style_NeededSize(
     int *ePadX, *iPadX, *uPadX, *ePadY, *iPadY, *uPadY;
     int i, j;
     int x = 0, y = 0;
-    int hasSqueeze = 0;
+    int squeezeX = 0, squeezeY = 0;
 
     STATIC_ALLOC(layouts, struct Layout, masterStyle->numElements);
 
@@ -1709,12 +1824,6 @@ Style_NeededSize(
 	layout->uPadX[PAD_BOTTOM_RIGHT] = 0;
 	layout->uPadY[PAD_TOP_LEFT]     = 0;
 	layout->uPadY[PAD_BOTTOM_RIGHT] = 0;
-
-	eLink1 = &eLinks1[i];
-	if ((eLink1->onion == NULL) &&
-	    (eLink1->flags & (ELF_SQUEEZE_X | ELF_SQUEEZE_Y)))
-	    hasSqueeze = 1;
-
     }
 
     /* Figure out the padding around elements surrounded by -union elements */
@@ -1789,79 +1898,35 @@ Style_NeededSize(
 	    continue;
 	}
 
-	if ((eLink2->neededWidth == -1) || (eLink2->neededHeight == -1))
-	{
-	    if ((eLink1->fixedWidth >= 0) && (eLink1->fixedHeight >= 0))
-	    {
-		eLink2->neededWidth = eLink1->fixedWidth;
-		eLink2->neededHeight = eLink1->fixedHeight;
-	    }
-	    else
-	    {
-		ElementArgs args;
-		int width, height;
-
-		args.tree = tree;
-		args.state = state;
-		args.elem = eLink2->elem;
-		args.needed.fixedWidth = eLink1->fixedWidth;
-		args.needed.fixedHeight = eLink1->fixedHeight;
-		if (eLink1->maxWidth > eLink1->minWidth)
-		    args.needed.maxWidth = eLink1->maxWidth;
-		else
-		    args.needed.maxWidth = -1;
-		if (eLink1->maxHeight > eLink1->minHeight)
-		    args.needed.maxHeight = eLink1->maxHeight;
-		else
-		    args.needed.maxHeight = -1;
-		(*args.elem->typePtr->neededProc)(&args);
-		width = args.needed.width;
-		height = args.needed.height;
-
-		if (eLink1->fixedWidth >= 0)
-		    width = eLink1->fixedWidth;
-		else if ((eLink1->minWidth >= 0) &&
-		    (width < eLink1->minWidth))
-		    width = eLink1->minWidth;
-		else if ((eLink1->maxWidth >= 0) &&
-		    (width > eLink1->maxWidth))
-		    width = eLink1->maxWidth;
-
-		if (eLink1->fixedHeight >= 0)
-		    height = eLink1->fixedHeight;
-		else if ((eLink1->minHeight >= 0) &&
-		    (height < eLink1->minHeight))
-		    height = eLink1->minHeight;
-		else if ((eLink1->maxHeight >= 0) &&
-		    (height > eLink1->maxHeight))
-		    height = eLink1->maxHeight;
-
-		eLink2->neededWidth = width;
-		eLink2->neededHeight = height;
-
-		eLink2->layoutWidth = -1;
-	    }
+#ifdef CACHE_ELEM_SIZE
+	if ((eLink2->neededWidth == -1) || (eLink2->neededHeight == -1)) {
+	    Element_NeededSize(tree, eLink1, eLink2->elem, state,
+		    &eLink2->neededWidth, &eLink2->neededHeight);
+	    eLink2->layoutWidth = -1;
 	}
-
 	layout->useWidth = eLink2->neededWidth;
 	layout->useHeight = eLink2->neededHeight;
-	if (squeeze)
+#else
+	Element_NeededSize(tree, eLink1, eLink2->elem, state,
+		&layout->useWidth, &layout->useHeight);
+#endif
+
+	if (eLink1->flags & ELF_SQUEEZE_X)
 	{
-	    if (eLink1->flags & ELF_SQUEEZE_X)
-	    {
-		if ((eLink1->minWidth >= 0) &&
-		    (eLink1->minWidth <= layout->useWidth))
-		    layout->useWidth = eLink1->minWidth;
-		else
-		    layout->useWidth = 0;
+	    if ((eLink1->minWidth >= 0) &&
+		    (eLink1->minWidth <= layout->useWidth)) {
+		squeezeX += layout->useWidth - eLink1->minWidth;
+	    } else {
+		squeezeX += layout->useWidth;
 	    }
-	    if (eLink1->flags & ELF_SQUEEZE_Y)
-	    {
-		if ((eLink1->minHeight >= 0) &&
-		    (eLink1->minHeight <= layout->useHeight))
-		    layout->useHeight = eLink1->minHeight;
-		else
-		    layout->useHeight = 0;
+	}
+	if (eLink1->flags & ELF_SQUEEZE_Y)
+	{
+	    if ((eLink1->minHeight >= 0) &&
+		    (eLink1->minHeight <= layout->useHeight)) {
+		squeezeY += layout->useHeight - eLink1->minHeight;
+	    } else {
+		squeezeY += layout->useHeight;
 	    }
 	}
 
@@ -1930,9 +1995,10 @@ Style_NeededSize(
     Layout_Size(masterStyle->vertical, masterStyle->numElements, layouts,
 	widthPtr, heightPtr);
 
-    STATIC_FREE(layouts, struct Layout, masterStyle->numElements);
+    *minWidthPtr = *widthPtr - squeezeX;
+    *minHeightPtr = *heightPtr - squeezeY;
 
-    return hasSqueeze;
+    STATIC_FREE(layouts, struct Layout, masterStyle->numElements);
 }
 
 /*
@@ -1962,19 +2028,15 @@ Style_CheckNeededSize(
 {
     if (style->neededWidth == -1)
     {
-	int hasSqueeze = Style_NeededSize(tree, style, state,
-	    &style->neededWidth, &style->neededHeight, FALSE);
-	if (hasSqueeze)
-	{
-	    Style_NeededSize(tree, style, state, &style->minWidth,
-		&style->minHeight, TRUE);
-	}
-	else
-	{
-	    style->minWidth = style->neededWidth;
-	    style->minHeight = style->neededHeight;
-	}
+	int minWidth, minHeight;
+
+	Style_NeededSize(tree, style, state,
+	    &style->neededWidth, &style->neededHeight, &minWidth, &minHeight);
+#ifdef CACHE_STYLE_SIZE
+	style->minWidth = minWidth;
+	style->minHeight = minHeight;
 	style->layoutWidth = -1;
+#endif /* CACHE_STYLE_SIZE */
 #ifdef TREECTRL_DEBUG
 	style->neededState = state;
 #endif
@@ -1985,6 +2047,39 @@ Style_CheckNeededSize(
 	    style->neededState, state);
 #endif
 }
+
+#ifndef CACHE_STYLE_SIZE
+
+static void
+Style_MinSize(
+    TreeCtrl *tree,		/* Widget info. */
+    IStyle *style,		/* Style info. */
+    int state,			/* STATE_xxx flags. */
+    int *minWidthPtr,
+    int *minHeightPtr
+    )
+{
+    int i, hasSqueeze = FALSE;
+
+    for (i = 0; i < style->master->numElements; i++) {
+	MElementLink *eLink1 = &style->master->elements[i];
+	if ((eLink1->onion == NULL) &&
+		(eLink1->flags & (ELF_SQUEEZE_X | ELF_SQUEEZE_Y))) {
+	    hasSqueeze = TRUE;
+	    break;
+	}
+    }
+    if (hasSqueeze) {
+	int width, height;
+	Style_NeededSize(tree, style, state, &width, &height,
+		minWidthPtr, minHeightPtr);
+    } else {
+	*minWidthPtr = style->neededWidth;
+	*minHeightPtr = style->neededHeight;
+    }
+}
+
+#endif /* !CACHE_STYLE_SIZE */
 
 /*
  *----------------------------------------------------------------------
@@ -2072,9 +2167,20 @@ TreeStyle_UseHeight(
     IStyle *style = (IStyle *) drawArgs->style;
     int state = drawArgs->state;
     struct Layout staticLayouts[STATIC_SIZE], *layouts = staticLayouts;
-    int width, height;
+    int width, height, minWidth;
+#ifndef CACHE_STYLE_SIZE
+    int minHeight;
+#endif
 
     Style_CheckNeededSize(tree, style, state);
+#ifdef CACHE_STYLE_SIZE
+    minWidth = style->minWidth;
+#else
+    if (drawArgs->width < style->neededWidth + drawArgs->indent)
+	Style_MinSize(tree, style, state, &minWidth, &minHeight);
+    else
+	minWidth = style->neededWidth;
+#endif
 
     /*
      * If we have:
@@ -2086,20 +2192,22 @@ TreeStyle_UseHeight(
      */
     if ((drawArgs->width == -1) ||
 	(drawArgs->width >= style->neededWidth + drawArgs->indent) ||
-	(style->neededWidth == style->minWidth))
+	(style->neededWidth == minWidth))
     {
 	return style->neededHeight;
     }
 
     /* We never lay out the style at less than the minimum width */
-    if (drawArgs->width < style->minWidth + drawArgs->indent)
-	drawArgs->width = style->minWidth + drawArgs->indent;
+    if (drawArgs->width < minWidth + drawArgs->indent)
+	drawArgs->width = minWidth + drawArgs->indent;
 
+#ifdef CACHE_STYLE_SIZE
     /* We have less space than the style needs, and have already calculated
      * the height of the style at this width. (The height may change because
      * of text elements wrapping lines). */
     if (drawArgs->width == style->layoutWidth)
 	return style->layoutHeight;
+#endif
 
     STATIC_ALLOC(layouts, struct Layout, style->master->numElements);
 
@@ -2110,8 +2218,10 @@ TreeStyle_UseHeight(
 
     STATIC_FREE(layouts, struct Layout, style->master->numElements);
 
+#ifdef CACHE_STYLE_SIZE
     style->layoutWidth = drawArgs->width;
     style->layoutHeight = height;
+#endif
 
     return height;
 }
@@ -2141,11 +2251,26 @@ void TreeStyle_Draw(
     TreeCtrl *tree = drawArgs->tree;
     int *bounds = drawArgs->bounds;
     ElementArgs args;
-    int i, x, y;
+    int i, x, y, minWidth, minHeight;
     struct Layout staticLayouts[STATIC_SIZE], *layouts = staticLayouts;
+#define DEBUG_DRAW 0
+#if DEBUG_DRAW
     int debugDraw = FALSE;
+#endif
 
     Style_CheckNeededSize(tree, style, drawArgs->state);
+#ifdef CACHE_STYLE_SIZE
+    minWidth = style->minWidth;
+    minHeight = style->minHeight;
+#else
+    if ((drawArgs->width < style->neededWidth + drawArgs->indent) ||
+	    (drawArgs->height < style->neededHeight)) {
+	Style_MinSize(tree, style, drawArgs->state, &minWidth, &minHeight);
+    } else {
+	minWidth = style->neededWidth;
+	minHeight = style->neededHeight;
+    }
+#endif
 
     /* Get the bounds allowed for drawing (in window coordinates), inside
      * the item-column(s) and inside the header/borders. */
@@ -2157,10 +2282,10 @@ void TreeStyle_Draw(
     args.display.bounds[3] = MIN(bounds[3], y + drawArgs->height);
 
     /* We never lay out the style at less than the minimum size */
-    if (drawArgs->width < style->minWidth + drawArgs->indent)
-	drawArgs->width = style->minWidth + drawArgs->indent;
-    if (drawArgs->height < style->minHeight)
-	drawArgs->height = style->minHeight;
+    if (drawArgs->width < minWidth + drawArgs->indent)
+	drawArgs->width = minWidth + drawArgs->indent;
+    if (drawArgs->height < minHeight)
+	drawArgs->height = minHeight;
 
     STATIC_ALLOC(layouts, struct Layout, masterStyle->numElements);
 
@@ -2174,8 +2299,15 @@ void TreeStyle_Draw(
     {
 	struct Layout *layout = &layouts[i];
 
+	/* Don't "draw" window elements. TreeStyle_UpdateWindowPositions()
+	 * does that for us. */
+	if (ELEMENT_TYPE_MATCHES(layout->eLink->elem->typePtr, &elemTypeWindow))
+	    continue;
+
+#if DEBUG_DRAW
 	if (debugDraw && layout->master->onion != NULL)
 	    continue;
+#endif
 
 	if ((layout->useWidth > 0) && (layout->useHeight > 0))
 	{
@@ -2187,6 +2319,7 @@ void TreeStyle_Draw(
 	    args.display.width = layout->useWidth;
 	    args.display.height = layout->useHeight;
 	    args.display.sticky = layout->master->flags & ELF_STICKY;
+#if DEBUG_DRAW
 	    if (debugDraw)
 	    {
 		XColor *color[3];
@@ -2229,10 +2362,12 @@ void TreeStyle_Draw(
 		    layout->eLink->neededWidth, layout->eLink->neededHeight);
 	    }
 	    else
+#endif /* DEBUG_DRAW */
 		(*args.elem->typePtr->displayProc)(&args);
 	}
     }
 
+#if DEBUG_DRAW
     if (debugDraw)
 	for (i = 0; i < masterStyle->numElements; i++)
 	{
@@ -2270,6 +2405,7 @@ void TreeStyle_Draw(
 		}
 	    }
 	}
+#endif /* DEBUG_DRAW */
 
     STATIC_FREE(layouts, struct Layout, masterStyle->numElements);
 }
@@ -2298,14 +2434,36 @@ TreeStyle_UpdateWindowPositions(
     )
 {
     IStyle *style = (IStyle *) drawArgs->style;
+    MStyle *masterStyle = style->master;
     TreeCtrl *tree = drawArgs->tree;
     int *bounds = drawArgs->bounds;
     ElementArgs args;
-    int i, x, y;
+    int i, x, y, minWidth, minHeight;
     struct Layout staticLayouts[STATIC_SIZE], *layouts = staticLayouts;
+    int numElements = masterStyle->numElements;
 
     /* FIXME: Perhaps remember whether this style has any window
      * elements */
+    for (i = 0; i < numElements; i++) {
+	if (ELEMENT_TYPE_MATCHES(masterStyle->elements[i].elem->typePtr, &elemTypeWindow))
+	    break;
+    }
+    if (i == numElements)
+	return;
+
+    Style_CheckNeededSize(tree, style, drawArgs->state);
+#ifdef CACHE_STYLE_SIZE
+    minWidth = style->minWidth;
+    minHeight = style->minHeight;
+#else
+    if ((drawArgs->width < style->neededWidth + drawArgs->indent) ||
+	    (drawArgs->height < style->neededHeight)) {
+	Style_MinSize(tree, style, drawArgs->state, &minWidth, &minHeight);
+    } else {
+	minWidth = style->neededWidth;
+	minHeight = style->neededHeight;
+    }
+#endif
 
     /* Get the bounds allowed for drawing (in window coordinates), inside
      * the item-column(s) and inside the header/borders. */
@@ -2317,12 +2475,12 @@ TreeStyle_UpdateWindowPositions(
     args.display.bounds[3] = MIN(bounds[3], y + drawArgs->height);
 
     /* We never lay out the style at less than the minimum size */
-    if (drawArgs->width < style->minWidth + drawArgs->indent)
-	drawArgs->width = style->minWidth + drawArgs->indent;
-    if (drawArgs->height < style->minHeight)
-	drawArgs->height = style->minHeight;
+    if (drawArgs->width < minWidth + drawArgs->indent)
+	drawArgs->width = minWidth + drawArgs->indent;
+    if (drawArgs->height < minHeight)
+	drawArgs->height = minHeight;
 
-    STATIC_ALLOC(layouts, struct Layout, style->master->numElements);
+    STATIC_ALLOC(layouts, struct Layout, numElements);
 
     Style_DoLayout(drawArgs, layouts, FALSE, __FILE__, __LINE__);
 
@@ -2330,7 +2488,7 @@ TreeStyle_UpdateWindowPositions(
     args.state = drawArgs->state;
     args.display.drawable = drawArgs->drawable;
 
-    for (i = 0; i < style->master->numElements; i++)
+    for (i = 0; i < numElements; i++)
     {
 	struct Layout *layout = &layouts[i];
 
@@ -2339,6 +2497,10 @@ TreeStyle_UpdateWindowPositions(
 
 	if ((layout->useWidth > 0) && (layout->useHeight > 0))
 	{
+	    int requests;
+
+	    TreeDisplay_GetReadyForTrouble(tree, &requests);
+
 	    args.elem = layout->eLink->elem;
 	    args.display.x = drawArgs->x + layout->x + layout->ePadX[PAD_TOP_LEFT];
 	    args.display.y = drawArgs->y + layout->y + layout->ePadY[PAD_TOP_LEFT];
@@ -2348,10 +2510,22 @@ TreeStyle_UpdateWindowPositions(
 	    args.display.height = layout->useHeight;
 	    args.display.sticky = layout->master->flags & ELF_STICKY;
 	    (*args.elem->typePtr->displayProc)(&args);
+
+	    /* Updating the position of a window may generate a <Configure>
+	     * or <Map> event on that window. Binding scripts on those
+	     * events could do anything, including deleting items and
+	     * thus the style we are drawing. In other cases (such as when
+	     * using Tile widgets I notice), the Tk_GeomMgr.requestProc
+	     * may get called which calls Tree_ElementChangedItself which
+	     * calls FreeDItemInfo which frees a DItem we are in the middle
+	     * of displaying. So if anything was done that caused a display
+	     * request, then abort abort abort. */
+	    if (TreeDisplay_WasThereTrouble(tree, requests))
+		break;
 	}
     }
 
-    STATIC_FREE(layouts, struct Layout, style->master->numElements);
+    STATIC_FREE(layouts, struct Layout, numElements);
 }
 
 /*
@@ -3000,8 +3174,10 @@ TreeStyle_NewInstance(
 	{
 	    eLink = &copy->elements[i];
 	    eLink->elem = style->elements[i].elem;
+#ifdef CACHE_ELEM_SIZE
 	    eLink->neededWidth = -1;
 	    eLink->neededHeight = -1;
+#endif
 	}
     }
 
@@ -3218,7 +3394,7 @@ Style_Changed(
     TreeColumn treeColumn;
     Tcl_HashEntry *hPtr;
     Tcl_HashSearch search;
-    int i, columnIndex, layout;
+    int columnIndex, layout;
     int updateDInfo = FALSE;
     IStyle *style;
 
@@ -3235,12 +3411,15 @@ Style_Changed(
 	    style = (IStyle *) TreeItemColumn_GetStyle(tree, column);
 	    if ((style != NULL) && (style->master == masterStyle))
 	    {
+#ifdef CACHE_ELEM_SIZE
+		int i;
 		for (i = 0; i < masterStyle->numElements; i++)
 		{
 		    IElementLink *eLink = &style->elements[i];
 		    /* This is needed if the -width/-height layout options change */
 		    eLink->neededWidth = eLink->neededHeight = -1;
 		}
+#endif
 		style->neededWidth = style->neededHeight = -1;
 		Tree_InvalidateColumnWidth(tree, treeColumn);
 		TreeItemColumn_InvalidateSize(tree, column);
@@ -3367,6 +3546,7 @@ static void
 IStyle_ChangeElementsAux(
     TreeCtrl *tree,		/* Widget info. */
     IStyle *style,		/* Instance style to be updated. */
+    int oldCount,		/* The previous number of elements. */
     int count,			/* The number of elements in the style after
 				 * this routine finishes. */
     Element **elemList,		/* List of master elements the style uses. */
@@ -3374,11 +3554,10 @@ IStyle_ChangeElementsAux(
 				 * currently used by the style. */
     )
 {
-    MStyle *masterStyle = style->master;
     IElementLink *eLink, *eLinks = NULL;
     int i, staticKeep[STATIC_SIZE], *keep = staticKeep;
 
-    STATIC_ALLOC(keep, int, masterStyle->numElements);
+    STATIC_ALLOC(keep, int, oldCount);
 
     if (count > 0) {
 #ifdef ALLOC_HAX
@@ -3391,7 +3570,7 @@ IStyle_ChangeElementsAux(
     }
 
     /* Assume we are discarding all the old ElementLinks */
-    for (i = 0; i < masterStyle->numElements; i++)
+    for (i = 0; i < oldCount; i++)
 	keep[i] = 0;
 
     for (i = 0; i < count; i++)
@@ -3405,14 +3584,16 @@ IStyle_ChangeElementsAux(
 	{
 	    eLink = &eLinks[i];
 	    eLink->elem = elemList[i];
+#ifdef CACHE_ELEM_SIZE
 	    eLink->neededWidth = eLink->neededHeight = -1;
+#endif
 	}
     }
 
-    if (masterStyle->numElements > 0)
+    if (oldCount > 0)
     {
 	/* Free unused ElementLinks */
-	for (i = 0; i < masterStyle->numElements; i++)
+	for (i = 0; i < oldCount; i++)
 	{
 	    if (!keep[i]) {
 		IElementLink_FreeResources(tree, &style->elements[i]);
@@ -3421,13 +3602,13 @@ IStyle_ChangeElementsAux(
 #ifdef ALLOC_HAX
 	AllocHax_CFree(tree->allocData, IElementLinkUid,
 		(char *) style->elements, sizeof(IElementLink),
-		masterStyle->numElements, ELEMENT_LINK_ROUND);
+		oldCount, ELEMENT_LINK_ROUND);
 #else
-	WCFREE(style->elements, IElementLink, masterStyle->numElements);
+	WCFREE(style->elements, IElementLink, oldCount);
 #endif
     }
 
-    STATIC_FREE(keep, int, masterStyle->numElements);
+    STATIC_FREE(keep, int, oldCount);
 
     style->elements = eLinks;
 }
@@ -3470,7 +3651,7 @@ Style_ChangeElements(
     int columnIndex, layout;
     int updateDInfo = FALSE;
     IStyle *style;
-    int i, j, k;
+    int i, j, k, oldCount;
 
     /* Update -union lists */
     for (i = 0; i < masterStyle->numElements; i++)
@@ -3527,6 +3708,7 @@ Style_ChangeElements(
 	}
     }
 
+    oldCount = masterStyle->numElements;
     MStyle_ChangeElementsAux(tree, masterStyle, count, elemList, map);
 
     hPtr = Tcl_FirstHashEntry(&tree->itemHash, &search);
@@ -3542,7 +3724,7 @@ Style_ChangeElements(
 	    style = (IStyle *) TreeItemColumn_GetStyle(tree, column);
 	    if ((style != NULL) && (style->master == masterStyle))
 	    {
-		IStyle_ChangeElementsAux(tree, style, count, elemList, map);
+		IStyle_ChangeElementsAux(tree, style, oldCount, count, elemList, map);
 		style->neededWidth = style->neededHeight = -1;
 		Tree_InvalidateColumnWidth(tree, treeColumn);
 		TreeItemColumn_InvalidateSize(tree, column);
@@ -3632,8 +3814,10 @@ Style_ElemChanged(
 		eLink = &style->elements[masterElemIndex];
 		if (eLink->elem == masterElem)
 		{
+#ifdef CACHE_ELEM_SIZE
 		    if (csM & CS_LAYOUT)
 			eLink->neededWidth = eLink->neededHeight = -1;
+#endif
 		    cMask |= csM;
 		}
 		/* Instance element */
@@ -3641,8 +3825,10 @@ Style_ElemChanged(
 		{
 		    args.elem = eLink->elem;
 		    eMask = (*masterElem->typePtr->changeProc)(&args);
+#ifdef CACHE_ELEM_SIZE
 		    if (eMask & CS_LAYOUT)
 			eLink->neededWidth = eLink->neededHeight = -1;
+#endif
 		    cMask |= eMask;
 		}
 		iMask |= cMask;
@@ -3882,7 +4068,9 @@ Style_SetImageOrText(
 	    args.change.flagMaster = 0;
 	    (void) (*eLink->elem->typePtr->changeProc)(&args);
 
+#ifdef CACHE_ELEM_SIZE
 	    eLink->neededWidth = eLink->neededHeight = -1;
+#endif
 	    style->neededWidth = style->neededHeight = -1;
 	    break;
 	}
@@ -4328,7 +4516,9 @@ Tree_ElementChangedItself(
 
 	columnIndex = TreeItemColumn_Index(tree, item, column);
 
+#ifdef CACHE_ELEM_SIZE
 	eLink->neededWidth = eLink->neededHeight = -1;
+#endif
 	style->neededWidth = style->neededHeight = -1;
 
 	Tree_InvalidateColumnWidth(tree, Tree_FindColumn(tree, columnIndex));
@@ -4352,7 +4542,9 @@ void Tree_ElementIterateChanged(TreeIterate iter_, int mask)
 
     if (mask & CS_LAYOUT)
     {
+#ifdef CACHE_ELEM_SIZE
 	iter->eLink->neededWidth = iter->eLink->neededHeight = -1;
+#endif
 	iter->style->neededWidth = iter->style->neededHeight = -1;
 	Tree_InvalidateColumnWidth(iter->tree,
 	    Tree_FindColumn(iter->tree, iter->columnIndex));
@@ -4572,7 +4764,9 @@ TreeStyle_ElementConfigure(
 	(*eMask) = 0;
 	if (isNew)
 	{
+#ifdef CACHE_ELEM_SIZE
 	    eLink->neededWidth = eLink->neededHeight = -1;
+#endif
 	    style->neededWidth = style->neededHeight = -1;
 	    (*eMask) = CS_DISPLAY | CS_LAYOUT;
 	}
@@ -4594,7 +4788,9 @@ TreeStyle_ElementConfigure(
 
 	if (!isNew && ((*eMask) & CS_LAYOUT))
 	{
+#ifdef CACHE_ELEM_SIZE
 	    eLink->neededWidth = eLink->neededHeight = -1;
+#endif
 	    style->neededWidth = style->neededHeight = -1;
 	}
     }
@@ -5999,15 +6195,21 @@ TreeStyle_Identify(
     IStyle *style = (IStyle *) drawArgs->style;
     int state = drawArgs->state;
     IElementLink *eLink = NULL;
-    int i;
+    int i, minWidth, minHeight;
     struct Layout staticLayouts[STATIC_SIZE], *layouts = staticLayouts;
 
     Style_CheckNeededSize(tree, style, state);
+#ifdef CACHE_STYLE_SIZE
+    minWidth = style->minWidth;
+    minHeight = style->minHeight;
+#else
+    Style_MinSize(tree, style, state, &minWidth, &minHeight);
+#endif
 
-    if (drawArgs->width < style->minWidth + drawArgs->indent)
-	drawArgs->width = style->minWidth + drawArgs->indent;
-    if (drawArgs->height < style->minHeight)
-	drawArgs->height = style->minHeight;
+    if (drawArgs->width < minWidth + drawArgs->indent)
+	drawArgs->width = minWidth + drawArgs->indent;
+    if (drawArgs->height < minHeight)
+	drawArgs->height = minHeight;
 
     x -= drawArgs->x;
 
@@ -6063,15 +6265,21 @@ TreeStyle_Identify2(
     IStyle *style = (IStyle *) drawArgs->style;
     int state = drawArgs->state;
     IElementLink *eLink;
-    int i;
+    int i, minWidth, minHeight;
     struct Layout staticLayouts[STATIC_SIZE], *layouts = staticLayouts;
 
     Style_CheckNeededSize(tree, style, state);
+#ifdef CACHE_STYLE_SIZE
+    minWidth = style->minWidth;
+    minHeight = style->minHeight;
+#else
+    Style_MinSize(tree, style, state, &minWidth, &minHeight);
+#endif
 
-    if (drawArgs->width < style->minWidth + drawArgs->indent)
-	drawArgs->width = style->minWidth + drawArgs->indent;
-    if (drawArgs->height < style->minHeight)
-	drawArgs->height = style->minHeight;
+    if (drawArgs->width < minWidth + drawArgs->indent)
+	drawArgs->width = minWidth + drawArgs->indent;
+    if (drawArgs->height < minHeight)
+	drawArgs->height = minHeight;
 
     STATIC_ALLOC(layouts, struct Layout, style->master->numElements);
 
@@ -6246,8 +6454,10 @@ TreeStyle_Remap(
     for (i = 0; i < styleTo->numElements; i++)
     {
 	styleFrom->elements[i].elem = styleTo->elements[i].elem;
+#ifdef CACHE_ELEM_SIZE
 	styleFrom->elements[i].neededWidth = -1;
 	styleFrom->elements[i].neededHeight = -1;
+#endif
     }
     for (i = 0; i < styleFromNumElements; i++)
     {
@@ -6399,7 +6609,7 @@ TreeStyle_GetElemRects(
 {
     IStyle *style = (IStyle *) drawArgs->style;
     MStyle *master = style->master;
-    int i, j, count = 0;
+    int i, j, count = 0, minWidth, minHeight;
     struct Layout staticLayouts[STATIC_SIZE], *layouts = staticLayouts;
     Element *staticElems[STATIC_SIZE], **elems = staticElems;
     MElementLink *eLink;
@@ -6425,10 +6635,17 @@ TreeStyle_GetElemRects(
 	}
     }
 
-    if (drawArgs->width < style->minWidth + drawArgs->indent)
-	drawArgs->width = style->minWidth + drawArgs->indent;
-    if (drawArgs->height < style->minHeight)
-	drawArgs->height = style->minHeight;
+#ifdef CACHE_STYLE_SIZE
+    minWidth = style->minWidth;
+    minHeight = style->minHeight;
+#else
+    Style_MinSize(drawArgs->tree, style, drawArgs->state, &minWidth, &minHeight);
+#endif
+
+    if (drawArgs->width < minWidth + drawArgs->indent)
+	drawArgs->width = minWidth + drawArgs->indent;
+    if (drawArgs->height < minHeight)
+	drawArgs->height = minHeight;
 
     STATIC_ALLOC(layouts, struct Layout, master->numElements);
 
@@ -6513,8 +6730,10 @@ TreeStyle_ChangeState(
 	eMask = (*eLink->elem->typePtr->stateProc)(&args);
 	if (eMask)
 	{
+#ifdef CACHE_ELEM_SIZE
 	    if (eMask & CS_LAYOUT)
 		eLink->neededWidth = eLink->neededHeight = -1;
+#endif
 	    mask |= eMask;
 	}
     }
@@ -6585,7 +6804,9 @@ Tree_UndefineState(
 			args.elem = eLink->elem;
 			(*args.elem->typePtr->undefProc)(&args);
 		    }
+#ifdef CACHE_ELEM_SIZE
 		    eLink->neededWidth = eLink->neededHeight = -1;
+#endif
 		}
 		style->neededWidth = style->neededHeight = -1;
 		TreeItemColumn_InvalidateSize(tree, column);

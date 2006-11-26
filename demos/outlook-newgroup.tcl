@@ -9,7 +9,7 @@ proc DemoOutlookNewsgroup {} {
 
 	InitPics outlook-*
 
-	set T .f2.f1.t
+	set T [DemoList]
 
 	set height [font metrics [$T cget -font] -linespace]
 	if {$height < 18} {
@@ -168,7 +168,7 @@ proc DemoOutlookNewsgroup {} {
 			if {[info exists Message(afterId)]} {
 				after cancel $Message(afterId)
 			}
-			set Message(afterId,item) [lindex [%T selection get] 0]
+			set Message(afterId,item) [%T selection get 0]
 			set Message(afterId) [after 500 MessageReadDelayed]
 		}
 	}
@@ -180,7 +180,7 @@ proc MessageReadDelayed {} {
 
 	global Message
 
-	set T .f2.f1.t
+	set T [DemoList]
 
 	unset Message(afterId)
 	set I $Message(afterId,item)
@@ -211,7 +211,7 @@ proc DemoOutlookNewsgroup_2 {} {
 
 	InitPics outlook-*
 
-	set T .f2.f1.t
+	set T [DemoList]
 
 	set height [font metrics [$T cget -font] -linespace]
 	if {$height < 18} {
@@ -358,7 +358,7 @@ proc DemoOutlookNewsgroup_2 {} {
 
 	$T notify bind $T <Selection> {
 		if {[%T selection count] == 1} {
-			set I [lindex [%T selection get] 0]
+			set I [%T selection get 0]
 			if {!$Message(read,$I)} {
 				if {[%T item isopen $I] || ![AnyUnreadDescendants %T $I]} {
 					# unread ->read

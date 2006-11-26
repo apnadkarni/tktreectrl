@@ -49,6 +49,14 @@ proc InitPics {args} {
     return
 }
 
+# http://wiki.tcl.tk/1530
+if {[info procs lassign] eq ""} {
+    proc lassign {values args} {
+	uplevel 1 [list foreach $args [linsert $values end {}] break]
+	lrange $values [llength $args] end
+    }
+}
+
 if {[catch {
     package require dbwin 1.0
 }]} {
@@ -56,6 +64,7 @@ if {[catch {
 }
 
 set tile 1
+set tileFull 1
 if {$tile} {
     # Don't import ttk::entry, it messes up the edit bindings, and I'm not
     # sure how to get/set the equivalent -borderwidth, -selectborderwidth
@@ -227,15 +236,15 @@ proc MakeMenuBar {} {
     $m2 add command -label "Quit" -command exit
     $m add cascade -label "File" -menu $m2
 
-	if {$::tile} {
-	    set m2 [menu $m.mTheme -tearoff no]
-	    $m add cascade -label "Theme" -menu $m2
-	    foreach theme [lsort -dictionary [ttk::style theme names]] {
-		$m2 add radiobutton -label $theme -command [list ttk::setTheme $theme] \
-		    -variable ::DemoTheme -value $theme
-	    }
-	    $m2 add separator
-	    $m2 add command -label "Inspector" -command ToggleThemeWindow
+    if {$::tile} {
+	set m2 [menu $m.mTheme -tearoff no]
+	$m add cascade -label "Theme" -menu $m2
+	foreach theme [lsort -dictionary [ttk::style theme names]] {
+	    $m2 add radiobutton -label $theme -command [list ttk::setTheme $theme] \
+		-variable ::DemoTheme -value $theme
+	}
+	$m2 add separator
+	$m2 add command -label "Inspector" -command ToggleThemeWindow
     }
     
     return
@@ -304,17 +313,17 @@ proc MakeEventsWindow {} {
     return
 }
 proc RebuildEventsMenus {T m} {
-    foreach event [lsort -dictionary [.f2.f1.t notify eventnames]] {
-	set details [lsort -dictionary [.f2.f1.t notify detailnames $event]]
+    foreach event [lsort -dictionary [[DemoList] notify eventnames]] {
+	set details [lsort -dictionary [[DemoList] notify detailnames $event]]
 	foreach detail $details {
 	    set pattern <$event-$detail>
-	    set linkage [.f2.f1.t notify linkage $pattern]
+	    set linkage [[DemoList] notify linkage $pattern]
 	    lappend patterns $pattern $linkage
 	    lappend patterns2($linkage) $pattern
 	}
 	if {![llength $details]} {
 	    set pattern <$event>
-	    set linkage [.f2.f1.t notify linkage $pattern]
+	    set linkage [[DemoList] notify linkage $pattern]
 	    lappend patterns $pattern $linkage
 	    lappend patterns2($linkage) $pattern
 	}
@@ -341,7 +350,7 @@ proc RebuildEventsMenus {T m} {
     set ::Events {}
     set ::EventsId ""
     foreach {pattern linkage} $patterns {
-	.f2.f1.t notify bind $T $pattern {
+	[DemoList] notify bind $T $pattern {
 	    lappend Events %?
 	    if {$EventsId eq ""} {
 		set EventsId [after idle [list RecordEvents %W]]
@@ -402,7 +411,7 @@ proc ToggleEventsWindow {} {
     return
 }
 proc ToggleEvent {T pattern} {
-    .f2.f1.t notify configure $T $pattern -active $::EventTrack($pattern)
+    [DemoList] notify configure $T $pattern -active $::EventTrack($pattern)
     return    
 }
 proc ToggleEvents {T patterns} {
@@ -419,8 +428,8 @@ proc MakeIdentifyWindow {} {
     wm withdraw $w
     wm title $w "TkTreeCtrl Identify"
     set wText $w.text
-    text $wText -state disabled -width 50 -height 2 -font [.f2.f1.t cget -font]
-    $wText tag configure tagBold -font "[.f2.f1.t cget -font] bold"
+    text $wText -state disabled -width 50 -height 2 -font [[DemoList] cget -font]
+    $wText tag configure tagBold -font "[[DemoList] cget -font] bold"
     pack $wText -expand yes -fill both
     wm protocol $w WM_DELETE_WINDOW "ToggleIdentifyWindow"
     return
@@ -517,7 +526,7 @@ proc ToggleStyleEditorWindow {} {
     set w .styleEditor
     if {![winfo exists $w]} {
 	source [Path style-editor.tcl]
-	StyleEditor::Init .f2.f1.t
+	StyleEditor::Init [DemoList]
 	StyleEditor::SetListOfStyles
     } elseif {[winfo ismapped $w]} {
 	wm withdraw $w
@@ -644,10 +653,10 @@ proc sbset {sb first last} {
 }
 
 proc TreePlusScrollbarsInAFrame {f h v} {
-	if {$::tile} {
-	    frame $f -borderwidth 0
-	} else {
-		frame $f -borderwidth 1 -relief sunken
+    if {$::tileFull} {
+	frame $f -borderwidth 0
+    } else {
+	frame $f -borderwidth 1 -relief sunken
     }
     switch -- $::thisPlatform {
 	macintosh {
@@ -667,6 +676,7 @@ proc TreePlusScrollbarsInAFrame {f h v} {
     }
     treectrl $f.t -highlightthickness 0 -borderwidth 0 -font $font
     $f.t configure -xscrollincrement 20
+#    $f.t configure -itemprefix item# -columnprefix column#
     $f.t debug configure -enable no -display yes -erasecolor pink \
 	-drawcolor orange -displaydelay 30 -textlayout 0 -data 0
     if {$h} {
@@ -766,10 +776,12 @@ proc MakeMainWindow {} {
 
     # Tree + scrollbars
     TreePlusScrollbarsInAFrame .f2.f1 1 1
-    .f2.f1.t configure -indent 19
+    [DemoList] configure -indent 19
 
     # Give it a big border to debug drawing
-    .f2.f1.t configure -borderwidth 6 -relief ridge -highlightthickness 3
+    if {!$::tileFull} {
+	[DemoList] configure -borderwidth 6 -relief ridge -highlightthickness 3
+    }
 
     grid columnconfigure .f2 0 -weight 1
     grid rowconfigure .f2 0 -weight 1
@@ -777,16 +789,16 @@ proc MakeMainWindow {} {
 
     # Window to display result of "T identify"
     bind TagIdentify <Motion> {
-	if {"%W" ne ".f2.f1.t"} {
-	    set x [expr {%X - [winfo rootx .f2.f1.t]}]
-	    set y [expr {%Y - [winfo rooty .f2.f1.t]}]
+	if {"%W" ne [DemoList]} {
+	    set x [expr {%X - [winfo rootx [DemoList]]}]
+	    set y [expr {%Y - [winfo rooty [DemoList]]}]
 	} else {
 	    set x %x
 	    set y %y
 	}
-	UpdateIdentifyWindow .f2.f1.t $x $y
+	UpdateIdentifyWindow [DemoList] $x $y
     }
-    AddBindTag .f2.f1.t TagIdentify
+    AddBindTag [DemoList] TagIdentify
 
     .pw2 add .pw1 -width 200
     .pw2 add .f2 -width 450
@@ -809,22 +821,26 @@ proc MakeMainWindow {} {
     # generated by the "notify generate" command. The following events
     # are generated by the library scripts.
 
-    .f2.f1.t notify install <Header-invoke>
+    [DemoList] notify install <Header-invoke>
 
-    .f2.f1.t notify install <ColumnDrag-begin>
-    .f2.f1.t notify install <ColumnDrag-end>
-    .f2.f1.t notify install <ColumnDrag-receive>
+    [DemoList] notify install <ColumnDrag-begin>
+    [DemoList] notify install <ColumnDrag-end>
+    [DemoList] notify install <ColumnDrag-receive>
 
-    .f2.f1.t notify install <Drag-begin>
-    .f2.f1.t notify install <Drag-end>
-    .f2.f1.t notify install <Drag-receive>
+    [DemoList] notify install <Drag-begin>
+    [DemoList] notify install <Drag-end>
+    [DemoList] notify install <Drag-receive>
 
-    .f2.f1.t notify install <Edit-begin>
-    .f2.f1.t notify install <Edit-end>
-    .f2.f1.t notify install <Edit-accept>
+    [DemoList] notify install <Edit-begin>
+    [DemoList] notify install <Edit-end>
+    [DemoList] notify install <Edit-accept>
     ###
 
     return
+}
+
+proc DemoList {} {
+    return .f2.f1.t
 }
 
 proc MakeListPopup {T} {
@@ -978,6 +994,8 @@ proc MakeHeaderPopup {T} {
     $m2 add radiobutton -label "Right" -variable Popup(lock) -value right \
 	-command {$Popup(T) column configure $Popup(column) -lock right}
 
+    $m add checkbutton -label "Resize" -variable Popup(resize) \
+	-command {$Popup(T) column configure $Popup(column) -resize $Popup(resize)}
     $m add checkbutton -label "Squeeze" -variable Popup(squeeze) \
 	-command {$Popup(T) column configure $Popup(column) -squeeze $Popup(squeeze)}
     $m add checkbutton -label "Tree Column" -variable Popup(treecolumn) \
@@ -1012,6 +1030,7 @@ proc ShowPopup {T x y X Y} {
 	    set Popup(arrow,gravity) [$T column cget $Popup(column) -arrowgravity]
 	    set Popup(button) [$T column cget $Popup(column) -button]
 	    set Popup(expand) [$T column cget $Popup(column) -expand]
+	    set Popup(resize) [$T column cget $Popup(column) -resize]
 	    set Popup(squeeze) [$T column cget $Popup(column) -squeeze]
 	    set Popup(justify) [$T column cget $Popup(column) -justify]
 	    set Popup(lock) [$T column cget $Popup(column) -lock]
@@ -1090,7 +1109,7 @@ proc ShowPopup {T x y X Y} {
 
 # Allow "scan" bindings
 if {$::thisPlatform eq "windows"} {
-    bind .f2.f1.t <Control-ButtonPress-3> { }
+    bind [DemoList] <Control-ButtonPress-3> { }
 }
 
 #
@@ -1159,8 +1178,8 @@ proc DemoSet {cmd file} {
     uplevel #0 $cmd
     set clicks [expr {[clock clicks] - $clicks}]
     dbwin "set list in [ClicksToSeconds $clicks] seconds ($clicks clicks)\n"
-    .f2.f1.t xview moveto 0
-    .f2.f1.t yview moveto 0
+    [DemoList] xview moveto 0
+    [DemoList] yview moveto 0
     update
     DisplayStylesInList
     ShowSource $file
@@ -1169,21 +1188,20 @@ proc DemoSet {cmd file} {
 	    StyleEditor::SetListOfStyles
 	}
     }
-    AddBindTag .f2.f1.t TagIdentify
+    AddBindTag [DemoList] TagIdentify
     return
 }
 
 .f1.t notify bind .f1.t <Selection> {
     if {%c == 1} {
-	set selection [%T selection get]
-	set item [lindex $selection 0]
+	set item [%T selection get 0]
 	DemoSet $DemoCmd($item) $DemoFile($item)
     }
 }
 
 proc DisplayStylesInList {} {
 
-    set T .f2.f1.t
+    set T [DemoList]
     set t .f4.t
 
     # Create elements and styles the first time this is called
@@ -1214,7 +1232,7 @@ proc DisplayStylesInList {} {
 
 	# One item for each configuration option for this element
 	foreach list [$T element configure $elem] {
-	    foreach {name x y default current} $list {}
+	    lassign $list name x y default current
 	    set item2 [$t item create]
 	    if {[string equal $default $current]} {
 		$t item style set $item2 C0 s1
@@ -1260,7 +1278,7 @@ proc DisplayStylesInList {} {
 
 proc DisplayStylesInItem {item} {
 
-    set T .f2.f1.t
+    set T [DemoList]
     set t .f3.t
     $t column configure C0 -text "Styles in item [$T item id $item]"
 
@@ -1308,7 +1326,7 @@ proc DisplayStylesInItem {item} {
 
 		# One item for each configuration option in this element
 		foreach list [$T item element configure $item $column $elem] {
-		    foreach {name x y default current} $list {}
+		    lassign $list name x y default current
 		    set item4 [$t item create]
 		    set masterDefault [$T element cget $elem $name]
 		    set sameAsMaster [string equal $masterDefault $current]
@@ -1341,29 +1359,38 @@ proc DisplayStylesInItem {item} {
 }
 
 # When one item is selected in the demo list, display the styles in that item.
-# See DemoClear for why the tag "DontDelete" is used
-.f2.f1.t notify bind DontDelete <Selection> {
+# See DemoClear for why the tag "DontDelete" is used.
+set DisplayStylesInItem(item) ""
+bind [DemoList] <ButtonRelease-1> {
+    if {$DisplayStylesInItem(item) ne ""} {
+	DisplayStylesInItem $DisplayStylesInItem(item)
+	set DisplayStylesInItem(item) ""
+    }
+}
+[DemoList] notify bind DontDelete <Selection> {
     if {%c == 1} {
-	set selection [%T selection get]
-	DisplayStylesInItem [lindex $selection 0]
+	set DisplayStylesInItem(item) [%T selection get 0]
     }
 }
 
-# Move columns when ColumnDrag-receive is generated
-# See DemoClear for why the tag "DontDelete" is used
-.f2.f1.t notify bind DontDelete <ColumnDrag-receive> {
+# Move columns when ColumnDrag-receive is generated.
+# See DemoClear for why the tag "DontDelete" is used.
+[DemoList] notify bind DontDelete <ColumnDrag-receive> {
     %T column move %C %b
 }
 
 proc DemoClear {} {
 
-    set T .f2.f1.t
+    set T [DemoList]
 
     # Clear the demo list
     $T item delete all
 
     # Clear all bindings on the demo list added by the previous demo.
-    # This is why DontDelete is used for some bindings (see above).
+    # The bindings are removed from the tag $T only. For those
+    # bindings that should not be deleted we use the tag DontDelete.
+    # DontDelete is not a special name it just needs to be different
+    # than $T.
     $T notify unbind $T
 
     # Clear all run-time states
@@ -1396,8 +1423,8 @@ proc DemoClear {} {
 	-background white -scrollmargin 0 -xscrolldelay 50 -yscrolldelay 50 \
 	-buttonbitmap "" -buttonimage "" -backgroundmode row \
 	-indent 19 -defaultstyle {} -backgroundimage "" \
-	-showrootlines yes -minitemheight 0 -borderwidth [expr {$::tile ? 0 : 6}] \
-	-highlightthickness [expr {$::tile ? 0 : 3}] -usetheme yes -cursor {} \
+	-showrootlines yes -minitemheight 0 -borderwidth [expr {$::tileFull ? 0 : 6}] \
+	-highlightthickness [expr {$::tileFull ? 0 : 3}] -usetheme yes -cursor {} \
 	-itemwidth 0 -itemwidthequal no -itemwidthmultiple 0 \
 	-font [.f4.t cget -font]
 
@@ -1410,7 +1437,7 @@ proc DemoClear {} {
     $T column dragconfigure -enable yes
 
     # Restore default bindings to the demo list
-    bindtags $T [list $T TreeCtrl [winfo toplevel $T] all]
+    bindtags $T [list $T TreeCtrl [winfo toplevel $T] all DisplayStylesInItemBindTag]
 
     catch {destroy $T.entry}
     catch {destroy $T.text}
@@ -1423,7 +1450,7 @@ proc DemoClear {} {
 #
 proc DemoPictureCatalog {} {
 
-    set T .f2.f1.t
+    set T [DemoList]
 
     $T configure -showroot no -showbuttons no -showlines no \
 	-selectmode multiple -orient horizontal -wrap window \
@@ -1456,7 +1483,7 @@ proc DemoPictureCatalog {} {
 #
 proc DemoPictureCatalog2 {} {
 
-    set T .f2.f1.t
+    set T [DemoList]
 
     $T configure -showroot no -showbuttons no -showlines no \
 	-selectmode multiple -orient horizontal -wrap window \
@@ -1696,3 +1723,14 @@ if {[llength [info commands loupe]]} {
     }
 }
 
+proc RandomPerfTest {} {
+    set ::RandomN 15000
+    DemoSet DemoRandom random.tcl
+    [DemoList] item expand all
+    [DemoList] style layout styFolder elemTxtName -squeeze x
+    [DemoList] style layout styFile elemTxtName -squeeze x
+    [DemoList] elem conf elemTxtName -lines 1
+    update
+    puts [time {[DemoList] colu conf 0 -width 160 ; update}]
+    return
+}

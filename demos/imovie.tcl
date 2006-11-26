@@ -5,7 +5,7 @@
 #
 proc DemoIMovie {} {
 
-	set T .f2.f1.t
+	set T [DemoList]
 
 	#
 	# Configure the treectrl widget
@@ -118,7 +118,7 @@ proc iMovieButton1 {T x y} {
 	} elseif {[lindex $id 0] eq "item"} {
 		::TreeCtrl::ButtonPress1 $T $x $y
 		update
-		foreach {where item arg1 arg2 arg3 arg4} $id {}
+		lassign $id where item arg1 arg2 arg3 arg4
 		switch $arg1 {
 			column {
 				set I [lindex $id 1]

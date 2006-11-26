@@ -2,7 +2,7 @@
 
 proc DemoMyComputer {} {
 
-    set T .f2.f1.t
+    set T [DemoList]
 
     #
     # Configure the treectrl widget
@@ -93,8 +93,8 @@ proc DemoMyComputer {} {
     } {
 	set I [$T item create]
 	if {$type eq ""} {
-	    $T item style set $I 0 styHeader
-	    $T item span $I 0 5
+	    $T item style set $I first styHeader
+	    $T item span $I first [$T column count]
 	    # The headers are disabled so they can't be selected and
 	    # keyboard navigation skips over them.
 	    $T item enabled $I false

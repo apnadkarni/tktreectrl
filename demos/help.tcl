@@ -7,7 +7,7 @@ proc DemoHelpContents {} {
 
 	global HelpContents
 
-	set T .f2.f1.t
+	set T [DemoList]
 
 	set height [font metrics [$T cget -font] -linespace]
 	if {$height < 18} {
@@ -119,8 +119,8 @@ proc DemoHelpContents {} {
 		HelpMotion %W %x %y
 	}
 	bind DemoHelpContents <KeyPress-Return> {
-		if {[llength [%W selection get]] == 1} {
-			%W item toggle [lindex [%W selection get] 0]
+		if {[%W selection count] == 1} {
+			%W item toggle [%W selection get 0]
 		}
 		break
 	}
@@ -137,7 +137,7 @@ proc DemoHelpContents_2 {} {
 
 	global HelpContents
 
-	set T .f2.f1.t
+	set T [DemoList]
 
 	set height [font metrics [$T cget -font] -linespace]
 	if {$height < 18} {
@@ -259,8 +259,8 @@ proc DemoHelpContents_2 {} {
 		HelpMotion_2 %W %x %y
 	}
 	bind DemoHelpContents <KeyPress-Return> {
-		if {[llength [%W selection get]] == 1} {
-			%W item toggle [lindex [%W selection get] 0]
+		if {[%W selection count] == 1} {
+			%W item toggle [%W selection get 0]
 		}
 		break
 	}
@@ -286,8 +286,8 @@ proc HelpButton1 {w x y} {
 			$w item toggle $item
 			return
 		}
-		if {[llength [$w selection get]]} {
-			set item2 [lindex [$w selection get] 0]
+		if {[$w selection count]} {
+			set item2 [$w selection get 0]
 			$w item collapse $item2
 			foreach item2 [$w item ancestors $item2] {
 				if {[$w item compare $item != $item2]} {
@@ -296,9 +296,7 @@ proc HelpButton1 {w x y} {
 			}
 		}
 		$w activate $item
-		foreach item2 [$w item ancestors $item] {
-			$w item expand $item2
-		}
+		$w item expand [list $item ancestors]
 		$w item toggle $item
 		$w selection modify $item all
 	}

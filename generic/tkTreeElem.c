@@ -3720,6 +3720,7 @@ static void DisplayProcWindow(ElementArgs *args)
     int width, height;
     int match, match2;
     int draw;
+    int requests;
 
     BOOLEAN_FOR_STATE(draw, draw, state);
     if (!draw)
@@ -3746,19 +3747,26 @@ static void DisplayProcWindow(ElementArgs *args)
 	args->display.width, args->display.height,
 	TRUE, TRUE,
 	&x, &y, &width, &height);
+
     x += tree->drawableXOrigin - tree->xOrigin;
     y += tree->drawableYOrigin - tree->yOrigin;
+
+    /* -squeeze layout may give the element less space than requested. */
+    if (width > args->display.width)
+	width = args->display.width;
+    if (height > args->display.height)
+	height = args->display.height;
+
+    minX = args->display.bounds[0];
+    minY = args->display.bounds[1];
+    maxX = args->display.bounds[2];
+    maxY = args->display.bounds[3];
 
     /*
      * If the window is completely out of the visible area of the treectrl
      * then unmap it.  The window could suddenly reappear if the treectrl
      * window gets resized.
      */
-
-    minX = args->display.bounds[0];
-    minY = args->display.bounds[1];
-    maxX = args->display.bounds[2];
-    maxY = args->display.bounds[3];
 
     if (((x + width) <= minX) || ((y + height) <= minY)
 	    || (x >= maxX) || (y >= maxY)) {
@@ -3770,6 +3778,8 @@ hideIt:
 	}
 	return;
     }
+
+    TreeDisplay_GetReadyForTrouble(tree, &requests);
 
 #ifdef CLIP_WINDOW
     if (elemX->child != NULL) {
@@ -3798,11 +3808,15 @@ hideIt:
 		    || (cw != Tk_Width(elemX->tkwin))
 		    || (ch != Tk_Height(elemX->tkwin))) {
 		Tk_MoveResizeWindow(elemX->tkwin, cx, cy, cw, ch);
+		if (TreeDisplay_WasThereTrouble(tree, requests))
+		    return;
 	    }
 	    Tk_MapWindow(elemX->tkwin);
 	} else {
 	    Tk_MaintainGeometry(elemX->tkwin, tree->tkwin, cx, cy, cw, ch);
 	}
+	if (TreeDisplay_WasThereTrouble(tree, requests))
+	    return;
 
 	/*
 	 * Position the child window within the clip window.
@@ -3813,6 +3827,8 @@ hideIt:
 		|| (width != Tk_Width(elemX->child))
 		|| (height != Tk_Height(elemX->child))) {
 	    Tk_MoveResizeWindow(elemX->child, x, y, width, height);
+	    if (TreeDisplay_WasThereTrouble(tree, requests))
+		return;
 	}
 	Tk_MapWindow(elemX->child);
 	return;
@@ -3829,6 +3845,8 @@ hideIt:
 		|| (width != Tk_Width(elemX->tkwin))
 		|| (height != Tk_Height(elemX->tkwin))) {
 	    Tk_MoveResizeWindow(elemX->tkwin, x, y, width, height);
+	    if (TreeDisplay_WasThereTrouble(tree, requests))
+		return;
 	}
 	Tk_MapWindow(elemX->tkwin);
     } else {

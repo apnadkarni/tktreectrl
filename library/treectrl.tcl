@@ -196,6 +196,13 @@ namespace eval ::TreeCtrl {
     array set Priv {
 	prev {}
     }
+
+    if {[info procs ::lassign] eq ""} {
+	proc lassign {values args} {
+	    uplevel 1 [list foreach $args [linsert $values end {}] break]
+	    lrange $values [llength $args] end
+	}
+    }
 }
 
 # Retrieve filelist bindings from this dir
@@ -240,6 +247,63 @@ proc ::TreeCtrl::ColumnCanMoveHere {w column before} {
 	[$w column compare $before <= "last lock $lock next"]}]
 }
 
+# ::TreeCtrl::ColumnDragFindBefore --
+#
+# This is called when dragging a column header. The result is 1 if the given
+# coordinates are near a column header before which the dragged column can
+# be moved.
+#
+# Arguments:
+# w		The treectrl widget.
+# x		Window x-coord.
+# y		Window y-coord.
+# dragColumn	The column being dragged.
+# indColumn_	Out: what to set -indicatorcolumn to.
+# indSide_	Out: what to set -indicatorside to.
+
+proc ::TreeCtrl::ColumnDragFindBefore {w x y dragColumn indColumn_ indSide_} {
+    upvar $indColumn_ indColumn
+    upvar $indSide_ indSide
+
+    switch -- [$w column cget $dragColumn -lock] {
+	left {set area left}
+	none {set area content}
+	right {set area right}
+    }
+    scan [$w bbox $area] "%d %d %d %d" minX y1 maxX y2
+    if {$x < $minX} {
+	set x $minX
+    }
+    if {$x >= $maxX} {
+	set x [expr {$maxX - 1}]
+    }
+    set id [$w identify $x $y]
+    if {[lindex $id 0] ne "header"} {
+	return 0
+    }
+    set indColumn [lindex $id 1]
+    set before $indColumn
+    set prev [$w column id "$dragColumn prev visible"]
+    set next [$w column id "$dragColumn next visible"]
+    if {[$w column compare $indColumn == "tail"]} {
+	set indSide left
+    } elseif {$prev ne "" && [$w column compare $prev == $indColumn]} {
+	set indSide left
+    } elseif {$next ne "" && [$w column compare $next == $indColumn]} {
+	set before [$w column id "$indColumn next visible"]
+	set indSide right
+    } else {
+	scan [$w column bbox $indColumn] "%d %d %d %d" x1 y1 x2 y2
+	if {$x < $x1 + ($x2 - $x1) / 2} {
+	    set indSide left
+	} else {
+	    set before [$w column id "$indColumn next visible"]
+	    set indSide right
+	}
+    }
+    return [ColumnCanMoveHere $w $dragColumn $before]
+}
+
 # ::TreeCtrl::CursorAction --
 #
 # If the given point is at the left or right edge of a resizable column, the
@@ -260,9 +324,9 @@ proc ::TreeCtrl::CursorAction {w x y} {
 	set side [lindex $id 2]
 	if {$side eq "left"} {
 	    if {[$w column compare $column == tail]} {
-		set column [$w column id "last visible lock none"]
-		if {$column ne ""} {
-		    return "column resize $column"
+		set column2 [$w column id "last visible lock none"]
+		if {$column2 ne "" && [$w column cget $column2 -resize]} {
+		    return "column resize $column2"
 		}
 		# Can't -resize or -button the tail column
 		return ""
@@ -275,9 +339,9 @@ proc ::TreeCtrl::CursorAction {w x y} {
 		# Resize the previous column
 		set lock [$w column cget $column -lock]
 		if {[$w column compare $column != "first visible lock $lock"]} {
-		    set column [$w column id "$column prev visible"]
-		    if {[$w column cget $column -resize]} {
-			return "column resize $column"
+		    set column2 [$w column id "$column prev visible"]
+		    if {[$w column cget $column2 -resize]} {
+			return "column resize $column2"
 		    }
 		}
 	    }
@@ -433,7 +497,7 @@ proc ::TreeCtrl::ButtonPress1 {w x y} {
     }
 
     if {[lindex $id 0] eq "item"} {
-	foreach {where item arg1 arg2} $id {}
+	lassign $id where item arg1 arg2
 	if {$arg1 eq "button"} {
 	    $w item toggle $item
 	    return
@@ -498,13 +562,12 @@ proc ::TreeCtrl::ButtonPress1 {w x y} {
 
 proc ::TreeCtrl::DoubleButton1 {w x y} {
 
-
     set id [$w identify $x $y]
     if {$id eq ""} {
 	return
     }
     if {[lindex $id 0] eq "item"} {
-	foreach {where item arg1 arg2} $id {}
+	lassign $id where item arg1 arg2
 	if {$arg1 eq "button"} {
 	    $w item toggle $item
 	    return
@@ -571,7 +634,7 @@ proc ::TreeCtrl::Motion1 {w x y} {
 	    }
 	}
 	dragColumn {
-	    scan [$w column bbox $Priv(column)] "%d %d %d %d" x1 y1 x2 y2
+	    scan [$w bbox header] "%d %d %d %d" x1 y1 x2 y2
 	    if {$y < $y1 - 30 || $y >= $y2 + 30} {
 		set inside 0
 	    } else {
@@ -584,34 +647,11 @@ proc ::TreeCtrl::Motion1 {w x y} {
 	    }
 	    if {$inside} {
 		$w column dragconfigure -imageoffset [expr {$x - $Priv(columnDrag,x)}]
-		set id [$w identify $x $Priv(columnDrag,y)]
-		if {[lindex $id 0] eq "header"} {
-		    set column [lindex $id 1]
-		    set before $column
-		    set prev [$w column id "$Priv(column) prev visible"]
-		    set next [$w column id "$Priv(column) next visible"]
-		    if {[$w column compare $column == "tail"]} {
-			set side left
-		    } elseif {$prev ne "" && [$w column compare $prev == $column]} {
-			set side left
-		    } elseif {$next ne "" && [$w column compare $next == $column]} {
-			set before [$w column id "$column next visible"]
-			set side right
-		    } else {
-			scan [$w column bbox $column] "%d %d %d %d" x1 y1 x2 y2
-			if {$x < $x1 + ($x2 - $x1) / 2} {
-			    set side left
-			} else {
-			    set before [$w column id "$column next visible"]
-			    set side right
-			}
-		    }
-		    if {[ColumnCanMoveHere $w $Priv(column) $before]} {
-			$w column dragconfigure -indicatorcolumn $column \
-			    -indicatorside $side
-		    } else {
-			$w column dragconfigure -indicatorcolumn ""
-		    }
+		if {[ColumnDragFindBefore $w $x $Priv(columnDrag,y) $Priv(column) indColumn indSide]} {
+		    $w column dragconfigure -indicatorcolumn $indColumn \
+			-indicatorside $indSide
+		} else {
+		    $w column dragconfigure -indicatorcolumn ""
 		}
 	    }
 	    if {[$w column cget $Priv(column) -lock] eq "none"} {
@@ -775,8 +815,8 @@ set Priv(prev) ""
 		}
 		$w configure -columnproxy {}
 		$w column configure $Priv(column) -width $width
-		CursorCheck $w $x $y
 	    }
+	    CursorCheck $w $x $y
 	}
     }
     unset Priv(buttonMode)
@@ -1051,6 +1091,13 @@ proc ::TreeCtrl::ColumnDragScrollCheck {w x y} {
 	    if {[lindex $bbox1 0] != [lindex $bbox2 0]} {
 		incr Priv(columnDrag,x) [expr {[lindex $bbox2 0] - [lindex $bbox1 0]}]
 		$w column dragconfigure -imageoffset [expr {$x - $Priv(columnDrag,x)}]
+
+		if {[ColumnDragFindBefore $w $x $Priv(columnDrag,y) $Priv(column) indColumn indSide]} {
+		    $w column dragconfigure -indicatorcolumn $indColumn \
+			-indicatorside $indSide
+		} else {
+		    $w column dragconfigure -indicatorcolumn ""
+		}
 	    }
 	    set Priv(autoscan,afterId,$w) [after 50 [list TreeCtrl::ColumnDragScrollCheckAux $w]]
 	}

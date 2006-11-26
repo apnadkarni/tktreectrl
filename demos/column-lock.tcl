@@ -4,7 +4,7 @@ proc DemoColumnLock {} {
 
     global ColumnLock
 
-    set T .f2.f1.t
+    set T [DemoList]
 
     InitPics *checked
 
@@ -128,10 +128,10 @@ proc DemoColumnLock {} {
     $T style layout labelR4 labelR4.rect -detach yes -iexpand xy
     $T style layout labelR4 labelR4.img -expand news -padx 2 -pady 2
 
-    $T item style set {range 1 10} last labelR1
-    $T item style set {range 11 20} last labelR2
-    $T item style set {range 21 30} last labelR3
-    $T item style set {range 31 40} last labelR4
+    $T item style set {range R1 R10} last labelR1
+    $T item style set {range R11 R20} last labelR2
+    $T item style set {range R21 R30} last labelR3
+    $T item style set {range R31 R40} last labelR4
 
     #
     # Create styles for the non-locked columns
@@ -156,6 +156,13 @@ proc DemoColumnLock {} {
     $T style layout cell cell.selW -detach yes -expand e -iexpand y
     $T style layout cell cell.selE -detach yes -expand w -iexpand y
 
+    # NOTE 1: the following column descriptions are equivalent in this demo:
+    #   "range {first next} {last prev}"
+    #   "all lock none" (see note #2 below)
+    #   "lock none !tail"
+    # The above item descriptions all specify the unlocked columns between
+    # the left-locked and right-locked columns.
+
     $T item style set "root children" "range {first next} {last prev}" cell
 
     $T element create windowStyle.rect rect -fill {#e0e8f0 mouseover #F7F7F7 CHECK}
@@ -167,18 +174,23 @@ proc DemoColumnLock {} {
     $T style layout windowStyle windowStyle.text -expand we -padx 2 -pady 2
     $T style layout windowStyle windowStyle.window -iexpand x -padx 2 -pady {0 2}
 
-    $T item style set "list {2 22}" "all lock none" windowStyle
+    # NOTE 2: "all lock none" also matches the tail column, however the
+    # [item style set] command does not operate on the tail column so it is
+    # ignored. Explicitly naming the tail column would result in an error
+    # however. Another example of this behaviour is [column delete all].
+
+    $T item style set "list {R2 R22}" "all lock none" windowStyle
 
     foreach C [$T column id "lock none !tail"] {
-	set ::DemoColumnLock(C$C) "C$C"
+	set ::DemoColumnLock(C$C) [$T column cget $C -tags]
 
-	set I 2
+	set I R2
 	set clip [frame $T.clipR${I}C$C -borderwidth 0]
 	$::entryCmd $clip.e -width 4 -textvariable ::DemoColumnLock(C$C)
 	$T item element configure $I $C windowStyle.window -window $clip + \
 	    windowStyle.text -textvariable ::DemoColumnLock(C$C)
 
-	set I 22
+	set I R22
 	set clip [frame $T.clipR${I}C$C -borderwidth 0]
 	$::entryCmd $clip.e -width 4 -textvariable ::DemoColumnLock(C$C)
 	$T item element configure $I $C windowStyle.window -window $clip + \
@@ -209,7 +221,7 @@ proc ColumnLockButton1 {w x y} {
     set id [$w identify $x $y]
     set ColumnLock(selecting) 0
     if {[lindex $id 0] eq "item"} {
-	foreach {what item where arg1 arg2 arg3} $id {}
+	lassign $id what item where arg1 arg2 arg3
 	if {$where eq "column"} {
 	    if {[$w column compare $arg1 == last]} {
 		$w item state set $item ~CHECK
@@ -230,7 +242,7 @@ proc ColumnLockMotion1 {w x y} {
     global ColumnLock
     set id [$w identify $x $y]
     if {[lindex $id 0] eq "item"} {
-	foreach {what item where arg1 arg2 arg3} $id {}
+	lassign $id what item where arg1 arg2 arg3
 	if {$where eq "column"} {
 	    if {[$w column cget $arg1 -lock] eq "none"} {
 		if {$ColumnLock(selecting)} {
@@ -277,10 +289,14 @@ proc ColumnLockMotion {w x y} {
 
 proc ColumnLockUpdateSelection {w} {
     global ColumnLock
+
+    # Clear the old selection.
     foreach {item column} $ColumnLock(selection) {
 	$w item state forcolumn $item $column {!selN !selS !selE !selW}
     }
     set ColumnLock(selection) {}
+
+    # Order the 2 corners.
     foreach {item1 column1} $ColumnLock(corner1) {}
     foreach {item2 column2} $ColumnLock(corner2) {}
     if {[$w item compare $item1 > $item2]} {
@@ -293,14 +309,29 @@ proc ColumnLockUpdateSelection {w} {
 	set column1 $column2
 	set column2 $swap
     }
+
+    # Set the state of every item-column on the edges of the selection.
     $w item state forcolumn $item1 "range $column1 $column2" selN
     $w item state forcolumn $item2 "range $column1 $column2" selS
     $w item state forcolumn "range $item1 $item2" $column1 selW
     $w item state forcolumn "range $item1 $item2" $column2 selE
-    foreach item [$w item id "range $item1 $item2"] {
+
+    # Remember every item-column on the edges of the selection.
+    foreach item [list $item1 $item2] {
 	foreach column [$w column id "range $column1 $column2"] {
 	    lappend ColumnLock(selection) $item $column
 	}
     }
+    foreach item [$w item id "range $item1 $item2"] {
+	foreach column [list $column1 $column2] {
+	    lappend ColumnLock(selection) $item $column
+	}
+    }
     return
+}
+
+proc ColumnLockAddText {} {
+    set w [DemoList]
+    $w style elements cell {cell.bd label1.text cell.selN cell.selS cell.selW cell.selE}
+    $w item text visible {lock none} abc
 }

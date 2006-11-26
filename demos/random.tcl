@@ -8,7 +8,7 @@ set RandomDepth 5
 #
 proc DemoRandom {} {
 
-	set T .f2.f1.t
+	set T [DemoList]
 
 	InitPics folder-* small-*
 
@@ -177,7 +177,7 @@ proc RandomButton1 {T x y} {
 
 	# Click in item
 	} else {
-		foreach {where item arg1 arg2 arg3 arg4} $id {}
+		lassign $id where item arg1 arg2 arg3 arg4
 		switch $arg1 {
 			button {
 				$T item toggle $item
@@ -398,7 +398,7 @@ proc RandomDrop {T target source pos} {
 #
 proc DemoRandom2 {} {
 
-	set T .f2.f1.t
+	set T [DemoList]
 
 	DemoRandom
 
