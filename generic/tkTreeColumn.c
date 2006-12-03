@@ -43,6 +43,7 @@ struct TreeColumn_
 #endif /* DEPRECATED */
     Tk_Font tkfont;		/* -font */
     Tk_Justify justify;		/* -justify */
+    int itemJustify;		/* -itemjustify */
     PerStateInfo border;	/* -background */
     Tcl_Obj *borderWidthObj;	/* -borderwidth */
     int borderWidth;		/* -borderwidth */
@@ -120,6 +121,7 @@ struct TreeColumn_
     UniformGroup *uniform;	/* -uniform */
     int weight;			/* -weight */
 #endif
+    TreeColumnDInfo dInfo;	/* Display info. */
 };
 
 #ifdef UNIFORM_GROUP
@@ -258,10 +260,13 @@ Tk_ObjCustomOption uniformGroupCO =
 };
 #endif /* UNIFORM_GROUP */
 
-static char *arrowST[] = { "none", "up", "down", (char *) NULL };
-static char *arrowSideST[] = { "left", "right", (char *) NULL };
-static char *stateST[] = { "normal", "active", "pressed", (char *) NULL };
+static CONST char *arrowST[] = { "none", "up", "down", (char *) NULL };
+static CONST char *arrowSideST[] = { "left", "right", (char *) NULL };
+static CONST char *stateST[] = { "normal", "active", "pressed", (char *) NULL };
 static CONST char *lockST[] = { "left", "none", "right", (char *) NULL };
+static CONST char *justifyStrings[] = {
+    "left", "right", "center", (char *) NULL
+};
 
 #define COLU_CONF_IMAGE		0x0001
 #define COLU_CONF_NWIDTH	0x0002	/* neededWidth */
@@ -339,6 +344,9 @@ static Tk_OptionSpec columnSpecs[] = {
     {TK_OPTION_STRING, "-itembackground", (char *) NULL, (char *) NULL,
      (char *) NULL, Tk_Offset(TreeColumn_, itemBgObj), -1,
      TK_OPTION_NULL_OK, (ClientData) NULL, COLU_CONF_ITEMBG},
+    {TK_OPTION_CUSTOM, "-itemjustify", (char *) NULL, (char *) NULL,
+     (char *) NULL, -1, Tk_Offset(TreeColumn_, itemJustify),
+     TK_OPTION_NULL_OK, (ClientData) NULL, COLU_CONF_JUSTIFY},
     {TK_OPTION_CUSTOM, "-itemstyle", (char *) NULL, (char *) NULL,
      (char *) NULL, -1, Tk_Offset(TreeColumn_, itemStyle),
      TK_OPTION_NULL_OK, (ClientData) &styleCO, 0},
@@ -1964,10 +1972,7 @@ renumber:
 	/* Also update columnTreeLeft. */
 	tree->widthOfColumns = -1;
 	tree->widthOfColumnsLeft = tree->widthOfColumnsRight = -1;
-	Tree_DInfoChanged(tree, DINFO_CHECK_COLUMN_WIDTH |
-		DINFO_INVALIDATE | DINFO_OUT_OF_DATE);
-	/* BUG 784245 */
-	Tree_DInfoChanged(tree, DINFO_DRAW_HEADER);
+	Tree_DInfoChanged(tree, DINFO_CHECK_COLUMN_WIDTH);
     }
 }
 
@@ -2198,7 +2203,7 @@ Column_Config(
 		walk = walk->next;
 	    }
 	}
-	Tree_DInfoChanged(tree, DINFO_INVALIDATE | DINFO_OUT_OF_DATE);
+	Tree_DInfoChanged(tree, DINFO_INVALIDATE);
     }
 
     if (!createFlag && (column->lock != lock)) {
@@ -2242,9 +2247,9 @@ Column_Config(
 
     /* FIXME: only this column needs to be redisplayed. */
     if (mask & COLU_CONF_JUSTIFY)
-	Tree_DInfoChanged(tree, DINFO_INVALIDATE | DINFO_OUT_OF_DATE);
+	Tree_DInfoChanged(tree, DINFO_INVALIDATE);
 
-    /* -stepwidth and  -widthHack */
+    /* -stepwidth and -widthhack */
     if (mask & COLU_CONF_RANGES)
 	Tree_DInfoChanged(tree, DINFO_REDO_RANGES);
 
@@ -2290,6 +2295,7 @@ Column_Alloc(
     memset(column, '\0', sizeof(TreeColumn_));
     column->tree = tree;
     column->optionTable = Tk_CreateOptionTable(tree->interp, columnSpecs);
+    column->itemJustify = -1;
     if (Tk_InitOptions(tree->interp, (char *) column, column->optionTable,
 		tree->tkwin) != TCL_OK) {
 	WFREE(column, TreeColumn_);
@@ -2350,6 +2356,57 @@ Column_Free(
     if (tree->columnCount == 0)
 	tree->nextColumnId = 0;
     return next;
+}
+
+/*
+ *----------------------------------------------------------------------
+ *
+ * TreeColumn_SetDInfo --
+ *
+ *	Store a display-info token in a column. Called by the display
+ *	code.
+ *
+ * Results:
+ *	None.
+ *
+ * Side effects:
+ *	None.
+ *
+ *----------------------------------------------------------------------
+ */
+
+void
+TreeColumn_SetDInfo(
+    TreeColumn column,		/* Column record. */
+    TreeColumnDInfo dInfo	/* Display info token. */
+    )
+{
+    column->dInfo = dInfo;
+}
+
+/*
+ *----------------------------------------------------------------------
+ *
+ * TreeColumn_GetDInfo --
+ *
+ *	Return the display-info token of a column. Called by the display
+ *	code.
+ *
+ * Results:
+ *	The display-info token or NULL.
+ *
+ * Side effects:
+ *	None.
+ *
+ *----------------------------------------------------------------------
+ */
+
+TreeColumnDInfo
+TreeColumn_GetDInfo(
+    TreeColumn column		/* Column record. */
+    )
+{
+    return column->dInfo;
 }
 
 /*
@@ -3208,9 +3265,11 @@ TreeColumn_Offset(
 /*
  *----------------------------------------------------------------------
  *
- * TreeColumn_Justify --
+ * TreeColumn_ItemJustify --
  *
- *	Return the value of the -justify config option for a column.
+ *	Return the value of the -itemjustify config option for a column.
+ *	If -itemjustify is unspecified, then return the value of the
+ *	-justify option.
  *
  * Results:
  *	TK_JUSTIFY_xxx constant.
@@ -3222,11 +3281,11 @@ TreeColumn_Offset(
  */
 
 Tk_Justify
-TreeColumn_Justify(
+TreeColumn_ItemJustify(
     TreeColumn column		/* Column token. */
     )
 {
-    return column->justify;
+    return (column->itemJustify != -1) ? column->itemJustify : column->justify;
 }
 
 #ifdef DEPRECATED
@@ -3511,7 +3570,7 @@ ColumnTagCmd(
     Tcl_Obj *CONST objv[]	/* Argument values. */
     )
 {
-    TreeCtrl *tree = (TreeCtrl *) clientData;
+    TreeCtrl *tree = clientData;
     static CONST char *commandNames[] = {
 	"add", "expr", "names", "remove", (char *) NULL
     };
@@ -3688,7 +3747,7 @@ TreeColumnCmd(
     Tcl_Obj *CONST objv[]	/* Argument values. */
     )
 {
-    TreeCtrl *tree = (TreeCtrl *) clientData;
+    TreeCtrl *tree = clientData;
     static CONST char *commandNames[] = {
 	"bbox", "cget", "compare", "configure", "count", "create", "delete",
 	"dragcget", "dragconfigure", "id",
@@ -4947,7 +5006,7 @@ Tree_InvalidateColumnWidth(
     }
     tree->widthOfColumns = -1;
     tree->widthOfColumnsLeft = tree->widthOfColumnsRight = -1;
-    Tree_DInfoChanged(tree, DINFO_CHECK_COLUMN_WIDTH | DINFO_DRAW_HEADER);
+    Tree_DInfoChanged(tree, DINFO_CHECK_COLUMN_WIDTH);
 }
 
 /*
@@ -5429,10 +5488,8 @@ doOffsets:
     totalWidth = 0;
     column = first;
     while (column != NULL && column->lock == first->lock) {
-	if (column->visible) {
-	    column->offset = totalWidth;
-	    totalWidth += column->useWidth;
-	}
+	column->offset = totalWidth;
+	totalWidth += column->useWidth;
 	column = column->next;
     }
     return totalWidth;
@@ -5665,5 +5722,7 @@ TreeColumn_InitInterp(
     PerStateCO_Init(columnSpecs, "-arrowbitmap", &pstBitmap, ColumnStateFromObj);
     PerStateCO_Init(columnSpecs, "-arrowimage", &pstImage, ColumnStateFromObj);
     PerStateCO_Init(columnSpecs, "-background", &pstBorder, ColumnStateFromObj);
+    StringTableCO_Init(columnSpecs, "-itemjustify", justifyStrings);
+
     return TCL_OK;
 }

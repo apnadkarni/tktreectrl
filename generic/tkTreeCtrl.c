@@ -12,7 +12,9 @@
 
 #include "tkTreeCtrl.h"
 #include "tclInt.h" /* TclGetIntForIndex */
+#ifdef USE_TTK
 #include "ttk/ttk-extra.h"
+#endif
 
 #ifdef WIN32
 #include <windows.h>
@@ -414,7 +416,11 @@ TreeObjCmd(
     TreeDInfo_Init(tree);
 
     Tk_CreateEventHandler(tree->tkwin,
+#ifndef USE_TTK
+	    ExposureMask|StructureNotifyMask|FocusChangeMask|ActivateMask,
+#else
 	    ExposureMask|StructureNotifyMask|FocusChangeMask|ActivateMask|VirtualEventMask,
+#endif
 	    TreeEventProc, (ClientData) tree);
 
     /* Must do this on Unix because Tk_GCForColor() uses
@@ -472,7 +478,7 @@ static int TreeWidgetCmd(
     Tcl_Obj *CONST objv[]	/* Argument values. */
     )
 {
-    TreeCtrl *tree = (TreeCtrl *) clientData;
+    TreeCtrl *tree = clientData;
     int result = TCL_OK;
     static CONST char *commandName[] = {
 	"activate", "bbox", "canvasx", "canvasy", "cget",
@@ -917,10 +923,9 @@ static int TreeWidgetCmd(
 		    (x < tree->columnTreeLeft + depth * tree->useIndent)) {
 		int column = (x - tree->columnTreeLeft) / tree->useIndent + 1;
 		if (column == depth) {
-		    if (tree->showButtons && TreeItem_GetButton(tree, item))
+		    if (TreeItem_HasButton(tree, item))
 			sprintf(buf + strlen(buf), " button");
-		}
-		else if (tree->showLines) {
+		} else if (tree->showLines) {
 		    TreeItem sibling;
 		    do {
 			item = TreeItem_GetParent(tree, item);
@@ -1606,7 +1611,7 @@ TreeEventProc(
     XEvent *eventPtr		/* Event info. */
     )
 {
-    TreeCtrl *tree = (TreeCtrl *) clientData;
+    TreeCtrl *tree = clientData;
 
     switch (eventPtr->type) {
 	case Expose:
@@ -1661,6 +1666,7 @@ TreeEventProc(
 		Tcl_EventuallyFree((ClientData) tree, TreeDestroy);
 	    }
 	    break;
+#ifdef USE_TTK
 	case VirtualEvent:
 	    if (!strcmp("ThemeChanged", ((XVirtualEvent *)(eventPtr))->name)) {
 		TreeTheme_ThemeChanged(tree);
@@ -1669,6 +1675,7 @@ TreeEventProc(
 		Tree_RelayoutWindow(tree);
 	    }
 	    break;
+#endif
     }
 }
 
@@ -1695,7 +1702,7 @@ TreeCmdDeletedProc(
     ClientData clientData	/* Widget info. */
     )
 {
-    TreeCtrl *tree = (TreeCtrl *) clientData;
+    TreeCtrl *tree = clientData;
 
     if (!tree->deleted) {
 	Tk_DestroyWindow(tree->tkwin);
@@ -1935,18 +1942,11 @@ TreeComputeGeometry(
     TreeCtrl *tree		/* Widget info. */
     )
 {
-    Tk_Window tkwin = tree->tkwin;
-    Ttk_Box clientBox = tree->clientBox;
-    int left, top, right, bottom;
-
-    left = clientBox.x;
-    top = clientBox.y;
-    right = Tk_Width(tkwin) - (clientBox.x + clientBox.width);
-    bottom = Tk_Height(tkwin) - (clientBox.y + clientBox.height);
-
-    Tk_SetInternalBorderEx(tree->tkwin, left, right, top, bottom);
-    Tk_GeometryRequest(tree->tkwin, tree->width + left + right,
-	    tree->height + top + bottom);
+    if (TreeTheme_ComputeGeometry(tree) != TCL_OK) {
+	Tk_SetInternalBorder(tree->tkwin, tree->inset);
+	Tk_GeometryRequest(tree->tkwin, tree->width + tree->inset * 2,
+		tree->height + tree->inset * 2);
+    }
 }
 
 /*
@@ -2052,7 +2052,7 @@ ImageChangedProc(
     )
 {
     /* I would like to know the image was deleted... */
-    TreeCtrl *tree = (TreeCtrl *) clientData;
+    TreeCtrl *tree = clientData;
 
     /* FIXME: any image elements need to have their size invalidated
      * and items relayout'd accordingly. */
@@ -3362,7 +3362,7 @@ TreeDebugCmd(
     Tcl_Obj *CONST objv[]	/* Argument values. */
     )
 {
-    TreeCtrl *tree = (TreeCtrl *) clientData;
+    TreeCtrl *tree = clientData;
     static CONST char *commandNames[] = {
 	"alloc", "cget", "configure", "dinfo", "expose", "scroll", (char *) NULL
     };
@@ -4171,6 +4171,9 @@ RecomputeWidgets(
     /* Clomp! Stomp! All over the internals */
     proc = Tk_GetClassProc(winPtr->classProcsPtr, worldChangedProc);
     if (proc == TreeWorldChanged) {
+#ifndef USE_TTK
+	TreeTheme_ThemeChanged((TreeCtrl *) winPtr->instanceData);
+#endif
 	TreeWorldChanged(winPtr->instanceData);
     }
 
@@ -4243,13 +4246,19 @@ Treectrl_Init(
     Tcl_Interp *interp		/* Interpreter the package is loading into. */
     )
 {
+#ifdef USE_TTK
+    static CONST char *tcl_version = "8.5";
+#else
+    static CONST char *tcl_version = "8.4";
+#endif
+
 #ifdef USE_TCL_STUBS
-    if (Tcl_InitStubs(interp, "8.5", 0) == NULL) {
+    if (Tcl_InitStubs(interp, tcl_version, 0) == NULL) {
 	return TCL_ERROR;
     }
 #endif
 #ifdef USE_TK_STUBS
-    if (Tk_InitStubs(interp, "8.5", 0) == NULL) {
+    if (Tk_InitStubs(interp, tcl_version, 0) == NULL) {
 	return TCL_ERROR;
     }
 #endif
@@ -4267,7 +4276,7 @@ Treectrl_Init(
     if (TreeColumn_InitInterp(interp) != TCL_OK)
 	return TCL_ERROR;
 
-    /* Hack for editing a text Element */
+    /* Hack for editing a text Element. */
     Tcl_CreateObjCommand(interp, "textlayout", TextLayoutCmd, NULL, NULL);
 
     /* Hack for colorizing an image (like Win98 explorer). */

@@ -13,14 +13,17 @@
 #endif
 
 #include "tkTreeCtrl.h"
+#ifdef USE_TTK
 #include "ttk/ttk-extra.h"
+#endif
 
 /* These must agree with tkTreeColumn.c */
 #define COLUMN_STATE_NORMAL 0
 #define COLUMN_STATE_ACTIVE 1
 #define COLUMN_STATE_PRESSED 2
 
-#ifdef WIN32xxx
+#ifndef USE_TTK
+#ifdef WIN32
 #include "tkWinInt.h"
 
 #include <uxtheme.h>
@@ -554,6 +557,11 @@ int TreeTheme_GetArrowSize(TreeCtrl *tree, Drawable drawable, int up, int *width
     return TCL_OK;
 }
 
+int TreeTheme_ComputeGeometry(TreeCtrl *tree)
+{
+    return TCL_ERROR;
+}
+
 #if !defined(WM_THEMECHANGED)
 #define WM_THEMECHANGED 0x031A
 #endif
@@ -923,6 +931,12 @@ int TreeTheme_GetArrowSize(TreeCtrl *tree, Drawable drawable, int up, int *width
     return TCL_ERROR;
 }
 
+
+int TreeTheme_ComputeGeometry(TreeCtrl *tree)
+{
+    return TCL_ERROR;
+}
+
 void TreeTheme_ThemeChanged(TreeCtrl *tree)
 {
 }
@@ -943,6 +957,65 @@ int TreeTheme_InitInterp(Tcl_Interp *interp)
 }
 
 #else /* MAC_OSX_TK */
+
+int TreeTheme_DrawHeaderItem(TreeCtrl *tree, Drawable drawable, int state, int arrow, int x, int y, int width, int height)
+{
+    return TCL_ERROR;
+}
+
+int TreeTheme_GetHeaderContentMargins(TreeCtrl *tree, int state, int arrow, int bounds[4])
+{
+    return TCL_ERROR;
+}
+
+int TreeTheme_DrawHeaderArrow(TreeCtrl *tree, Drawable drawable, int up, int x, int y, int width, int height)
+{
+    return TCL_ERROR;
+}
+
+int TreeTheme_DrawButton(TreeCtrl *tree, Drawable drawable, int open, int x, int y, int width, int height)
+{
+    return TCL_ERROR;
+}
+
+int TreeTheme_GetButtonSize(TreeCtrl *tree, Drawable drawable, int open, int *widthPtr, int *heightPtr)
+{
+    return TCL_ERROR;
+}
+
+int TreeTheme_GetArrowSize(TreeCtrl *tree, Drawable drawable, int up, int *widthPtr, int *heightPtr)
+{
+    return TCL_ERROR;
+}
+
+
+int TreeTheme_ComputeGeometry(TreeCtrl *tree)
+{
+    return TCL_ERROR;
+}
+
+void TreeTheme_ThemeChanged(TreeCtrl *tree)
+{
+}
+
+int TreeTheme_Init(TreeCtrl *tree)
+{
+    return TCL_OK;
+}
+
+int TreeTheme_Free(TreeCtrl *tree)
+{
+    return TCL_OK;
+}
+
+int TreeTheme_InitInterp(Tcl_Interp *interp)
+{
+    return TCL_OK;
+}
+
+#endif /* !WIN32 && !MAC_OSX_TK */
+
+#else /* !USE_TTK */
 
 typedef struct TreeThemeData_
 {
@@ -1039,6 +1112,24 @@ int TreeTheme_GetButtonSize(TreeCtrl *tree, Drawable drawable, int open, int *wi
 int TreeTheme_GetArrowSize(TreeCtrl *tree, Drawable drawable, int up, int *widthPtr, int *heightPtr)
 {
     return TCL_ERROR;
+}
+
+int TreeTheme_ComputeGeometry(TreeCtrl *tree)
+{
+    Tk_Window tkwin = tree->tkwin;
+    Ttk_Box clientBox = tree->clientBox;
+    int left, top, right, bottom;
+
+    left = clientBox.x;
+    top = clientBox.y;
+    right = Tk_Width(tkwin) - (clientBox.x + clientBox.width);
+    bottom = Tk_Height(tkwin) - (clientBox.y + clientBox.height);
+
+    Tk_SetInternalBorderEx(tree->tkwin, left, right, top, bottom);
+    Tk_GeometryRequest(tree->tkwin, tree->width + left + right,
+	    tree->height + top + bottom);
+
+    return TCL_OK;
 }
 
 static Tk_OptionSpec NullOptionSpecs[] =
@@ -1470,5 +1561,5 @@ int TreeTheme_InitInterp(Tcl_Interp *interp)
     return TCL_OK;
 }
 
-#endif /* !WIN32 && !MAC_OSX_TK */
+#endif /* USE_TTK */
 

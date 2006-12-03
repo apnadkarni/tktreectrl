@@ -10,6 +10,7 @@
 
 #include "tkTreeCtrl.h"
 #include "tclInt.h" /* TCL_ALIGN */
+
 #ifdef WIN32
 #include "tkWinInt.h"
 #endif
@@ -1328,6 +1329,8 @@ XImage2Photo(
  * to the end of text that is too long to fit (when max lines specified).
  */
 
+#define TEXTLAYOUT_ELLIPSIS
+
 typedef struct LayoutChunk
 {
     CONST char *start;		/* Pointer to simple string to be displayed.
@@ -1351,7 +1354,9 @@ typedef struct LayoutChunk
 				 * * characters in this chunk.  Can be less than
 				 * * width if extra space characters were
 				 * * absorbed by the end of the chunk. */
+#ifdef TEXTLAYOUT_ELLIPSIS
     int ellipsis;		/* TRUE if adding "..." */
+#endif
 } LayoutChunk;
 
 typedef struct LayoutInfo
@@ -1649,7 +1654,7 @@ wrapLine:
 	}
     }
 
-#if 1
+#ifdef TEXTLAYOUT_ELLIPSIS
     /* Fiddle with chunks on the last line to add ellipsis if there is some
      * text remaining */
     if ((start < end) && (layoutPtr->numChunks > 0))
@@ -1859,7 +1864,7 @@ void TextLayout_Draw(
 	    if (lastChar < numDisplayChars)
 		numDisplayChars = lastChar;
 	    lastByte = Tcl_UtfAtIndex(chunkPtr->start, numDisplayChars);
-#if 1
+#ifdef TEXTLAYOUT_ELLIPSIS
 	    if (chunkPtr->ellipsis)
 	    {
 		char staticStr[256], *buf = staticStr;
@@ -3154,6 +3159,7 @@ AllocHax_Stats(
 {
     AllocData *data = (AllocData *) _data;
     AllocStats *stats = data->stats;
+    int numElems = 0;
     Tcl_DString dString;
 
     Tcl_DStringInit(&dString);
@@ -3161,8 +3167,11 @@ AllocHax_Stats(
 	DStringAppendf(&dString, "%-20s: %8d : %8d B %5d KB\n",
 		stats->id, stats->count,
 		stats->size, (stats->size + 1023) / 1024);
+	numElems += stats->count;
 	stats = stats->next;
     }
+    DStringAppendf(&dString, "%-31s: %8d B %5d KB\n", "AllocElem overhead",
+	    numElems * BODY_OFFSET, (numElems * BODY_OFFSET) / 1024);
     Tcl_DStringResult(interp, &dString);
 }
 
@@ -5096,7 +5105,7 @@ DynamicOption_AllocIfNeeded(
 				 * created. */
     int id,			/* Unique id. */
     int size,			/* Size of option-specific data. */
-    DynamicOptionInitProc *init	/* Proc to intialized the option-specific
+    DynamicOptionInitProc *init	/* Proc to intialize the option-specific
 				 * data. May be NULL. */
     )
 {
@@ -5188,7 +5197,7 @@ DynamicCO_Set(
     )
 {
     TreeCtrl *tree = (TreeCtrl *) ((TkWindow *) tkwin)->instanceData;
-    DynamicCOClientData *cd = (DynamicCOClientData *) clientData;
+    DynamicCOClientData *cd = clientData;
     DynamicOption **firstPtr, *opt;
     DynamicCOSave *save;
     Tcl_Obj **objPtrPtr = NULL;
@@ -5249,7 +5258,7 @@ DynamicCO_Get(
     int internalOffset
     )
 {
-    DynamicCOClientData *cd = (DynamicCOClientData *) clientData;
+    DynamicCOClientData *cd = clientData;
     DynamicOption *first = *(DynamicOption **) (recordPtr + internalOffset);
     DynamicOption *opt = DynamicOption_Find(first, cd->id);
 
@@ -5281,7 +5290,7 @@ DynamicCO_Restore(
     )
 {
     TreeCtrl *tree = (TreeCtrl *) ((TkWindow *) tkwin)->instanceData;
-    DynamicCOClientData *cd = (DynamicCOClientData *) clientData;
+    DynamicCOClientData *cd = clientData;
     DynamicOption *first = *(DynamicOption **) internalPtr;
     DynamicOption *opt = DynamicOption_Find(first, cd->id);
     DynamicCOSave *save = *(DynamicCOSave **)saveInternalPtr;
@@ -5325,7 +5334,7 @@ DynamicCO_Free(
     )
 {
     TreeCtrl *tree = (TreeCtrl *) ((TkWindow *) tkwin)->instanceData;
-    DynamicCOClientData *cd = (DynamicCOClientData *) clientData;
+    DynamicCOClientData *cd = clientData;
     Tcl_Obj **objPtrPtr;
 
     if (OptionHax_Forget(tree, internalPtr)) {
@@ -5965,3 +5974,190 @@ BooleanFlagCO_Init(
     return TCL_OK;
 }
 
+/*
+ *----------------------------------------------------------------------
+ *
+ * ItemButtonCO_Set --
+ * ItemButtonCO_Get --
+ * ItemButtonCO_Restore --
+ *
+ *	These procedures implement a TK_OPTION_CUSTOM where the custom
+ *	option is a boolean value or "auto"; the internal rep is two
+ *	bits of an int: one bit for the boolean, and one for "auto".
+ *	This is used for the item option -button.
+ *
+ * Results:
+ *	None.
+ *
+ * Side effects:
+ *	None.
+ *
+ *----------------------------------------------------------------------
+ */
+
+struct ItemButtonCOClientData {
+    int flag1;		/* Bit to set when object is "true". */
+    int flag2;		/* Bit to set when object is "auto". */
+};
+
+static int
+ItemButtonCO_Set(
+    ClientData clientData,
+    Tcl_Interp *interp,
+    Tk_Window tkwin,
+    Tcl_Obj **value,
+    char *recordPtr,
+    int internalOffset,
+    char *saveInternalPtr,
+    int flags
+    )
+{
+    struct ItemButtonCOClientData *cd = clientData;
+    int new, *internalPtr, on, off;
+    char *s;
+    int length;
+
+    if (internalOffset >= 0)
+	internalPtr = (int *) (recordPtr + internalOffset);
+    else
+	internalPtr = NULL;
+
+    s = Tcl_GetStringFromObj((*value), &length);
+    if (s[0] == 'a' && strncmp(s, "auto", length) == 0) {
+	on = cd->flag2;
+	off = cd->flag1;
+    } else {
+	if (Tcl_GetBooleanFromObj(interp, (*value), &new) != TCL_OK) {
+	    FormatResult(interp, "expected boolean or auto but got \"%s\"", s);
+	    return TCL_ERROR;
+	}
+	if (new) {
+	    on = cd->flag1;
+	    off = cd->flag2;
+	} else {
+	    on = 0;
+	    off = cd->flag1 | cd->flag2;
+	}
+    }
+
+    if (internalPtr != NULL) {
+	*((int *) saveInternalPtr) = *internalPtr;
+	*internalPtr |= on;
+	*internalPtr &= ~off;
+    }
+
+    return TCL_OK;
+}
+
+static Tcl_Obj *
+ItemButtonCO_Get(
+    ClientData clientData,
+    Tk_Window tkwin,
+    char *recordPtr,
+    int internalOffset
+    )
+{
+    struct ItemButtonCOClientData *cd = clientData;
+    int value = *(int *) (recordPtr + internalOffset);
+
+    if (value & cd->flag2)
+	return Tcl_NewStringObj("auto", -1);
+    return Tcl_NewBooleanObj((value & cd->flag2) != 0);
+}
+
+static void
+ItemButtonCO_Restore(
+    ClientData clientData,
+    Tk_Window tkwin,
+    char *internalPtr,
+    char *saveInternalPtr
+    )
+{
+    struct ItemButtonCOClientData *cd = clientData;
+    int value = *(int *) saveInternalPtr;
+
+    *((int *) internalPtr) &= ~(cd->flag1 | cd->flag2);
+    *((int *) internalPtr) |= value & (cd->flag1 | cd->flag2);
+}
+
+int
+ItemButtonCO_Init(
+    Tk_OptionSpec *optionTable,
+    CONST char *optionName,
+    int flag1,
+    int flag2
+    )
+{
+    Tk_OptionSpec *specPtr;
+    Tk_ObjCustomOption *co;
+    struct ItemButtonCOClientData *cd;
+
+    specPtr = OptionSpec_Find(optionTable, optionName);
+    if (specPtr->type != TK_OPTION_CUSTOM)
+	panic("IntegerCO_Init: %s is not TK_OPTION_CUSTOM", optionName);
+    if (specPtr->clientData != NULL)
+	return TCL_OK;
+
+    /* ClientData for the Tk custom option record. */
+    cd = (struct ItemButtonCOClientData *)ckalloc(
+	    sizeof(struct ItemButtonCOClientData));
+    cd->flag1 = flag1;
+    cd->flag2 = flag2;
+
+    /* The Tk custom option record */
+    co = (Tk_ObjCustomOption *) ckalloc(sizeof(Tk_ObjCustomOption));
+    co->name = "button option";
+    co->setProc = ItemButtonCO_Set;
+    co->getProc = ItemButtonCO_Get;
+    co->restoreProc = ItemButtonCO_Restore;
+    co->freeProc = NULL;
+    co->clientData = cd;
+
+    specPtr->clientData = co;
+
+    return TCL_OK;
+}
+
+/*
+ *----------------------------------------------------------------------
+ *
+ * Tree_GetIntForIndex --
+ *
+ *	This is basically a direct copy of TclGetIntForIndex with one
+ *	important difference: the caller gets to know whether the index
+ *	was of the form "end?-offset?".
+ *
+ * Results:
+ *	None.
+ *
+ * Side effects:
+ *	None.
+ *
+ *----------------------------------------------------------------------
+ */
+
+int
+Tree_GetIntForIndex(
+    TreeCtrl *tree,		/* Widget info. */
+    Tcl_Obj *objPtr,		/* Points to an object containing either "end"
+				 * or an integer. */
+    int *indexPtr,		/* Location filled in with an integer
+				 * representing an index. */
+    int *endRelativePtr		/* Set to 1 if the returned index is relative
+				 * to "end". */
+    )
+{
+    int endValue = 0;
+    char *bytes;
+
+    if (TclGetIntForIndex(tree->interp, objPtr, endValue, indexPtr) != TCL_OK)
+	return TCL_ERROR;
+
+    bytes = Tcl_GetString(objPtr);
+    if (*bytes == 'e') {
+	*endRelativePtr = 1;
+    } else {
+	*endRelativePtr = 0;
+    }
+    return TCL_OK;
+}

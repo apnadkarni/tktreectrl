@@ -9,7 +9,9 @@
  */
 
 #include "tkTreeCtrl.h"
+#ifdef USE_TTK
 #include "ttk/ttk-extra.h"
+#endif
 
 /* Window -> Canvas */
 #define W2Cy(y) ((y) + tree->yOrigin)
@@ -17,6 +19,7 @@
 
 #define COMPLEX_WHITESPACE
 
+typedef struct TreeColumnDInfo_ TreeColumnDInfo_;
 typedef struct TreeDInfo_ TreeDInfo_;
 typedef struct RItem RItem;
 typedef struct Range Range;
@@ -82,11 +85,11 @@ struct DItem
     DItem *next;
 };
 
-typedef struct ColumnInfo {
-    TreeColumn column;
+/* Display information for a TreeColumn. */
+struct TreeColumnDInfo_ {
     int offset;			/* Last seen x-offset */
     int width;			/* Last seen column width */
-} ColumnInfo;
+};
 
 /* Display information for a TreeCtrl. */
 struct TreeDInfo_
@@ -96,8 +99,6 @@ struct TreeDInfo_
     int yOrigin;		/* Last seen TreeCtrl.yOrigin */
     int totalWidth;		/* Last seen Tree_TotalWidth() */
     int totalHeight;		/* Last seen Tree_TotalHeight() */
-    ColumnInfo *columns;	/* Last seen offset & width of each column */
-    int columnsSize;		/* Num elements in columns[] */
     int headerHeight;		/* Last seen TreeCtrl.headerHeight */
     DItem *dItem;		/* Head of list for each displayed item */
     DItem *dItemLast;		/* Temp for UpdateDInfo() */
@@ -1249,7 +1250,7 @@ RangesToIncrementsX(
     int totalWidth = Tree_TotalWidth(tree);
     int size;
 
-    if (dInfo->rangeFirst == NULL)
+    if (totalWidth <= visWidth)
 	return;
 
     /* First increment is zero */
@@ -1257,10 +1258,12 @@ RangesToIncrementsX(
     dInfo->xScrollIncrements = (int *) ckalloc(size * sizeof(int));
     dInfo->xScrollIncrements[dInfo->xScrollIncrementCount++] = 0;
 
-    range = dInfo->rangeFirst->next;
-    while (range != NULL) {
-	size = Increment_AddX(tree, range->offset, size);
-	range = range->next;
+    if (dInfo->rangeFirst != NULL) {
+	range = dInfo->rangeFirst->next;
+	while (range != NULL) {
+	    size = Increment_AddX(tree, range->offset, size);
+	    range = range->next;
+	}
     }
     if ((visWidth > 1) && (totalWidth -
 		dInfo->xScrollIncrements[dInfo->xScrollIncrementCount - 1] > visWidth)) {
@@ -2664,9 +2667,8 @@ GetOnScreenColumnsForItemAux(
     TreeColumnList *columns	/* Initialized list to append to. */
     )
 {
-    TreeDInfo dInfo = tree->dInfo;
     int minX, maxX, columnIndex = 0, x = 0, i, width;
-    TreeColumn column;
+    TreeColumn column = NULL, column2;
 
     minX = MAX(area->x, bounds[0]);
     maxX = MIN(area->x + area->width, bounds[2]);
@@ -2676,30 +2678,33 @@ GetOnScreenColumnsForItemAux(
 
     switch (lock) {
 	case COLUMN_LOCK_LEFT:
-	    columnIndex = TreeColumn_Index(tree->columnLockLeft);
+	    column = tree->columnLockLeft;
 	    break;
 	case COLUMN_LOCK_NONE:
-	    columnIndex = TreeColumn_Index(tree->columnLockNone);
+	    column = tree->columnLockNone;
 	    break;
 	case COLUMN_LOCK_RIGHT:
-	    columnIndex = TreeColumn_Index(tree->columnLockRight);
+	    column = tree->columnLockRight;
 	    break;
     }
 
-    for (/* nothing */; columnIndex < tree->columnCount; columnIndex++) {
-	column = dInfo->columns[columnIndex].column;
+    for (columnIndex = TreeColumn_Index(column);
+	    columnIndex < tree->columnCount; columnIndex++) {
 	if (TreeColumn_Lock(column) != lock)
 	    break;
-	if (!TreeColumn_Visible(column))
-	    continue;
-	width = dInfo->columns[columnIndex].width;
+	width = TreeColumn_GetDInfo(column)->width;
+	if (width == 0) /* also handles hidden columns */
+	    goto next;
 	if (dItem->spans != NULL) {
+	    /* FIXME: not possible since I skip over the entire span. */
 	    if (dItem->spans[columnIndex] != columnIndex)
 		goto next;
-	    /* Start of a span */
+	    /* Calculate the width of the span. */
+	    column2 = TreeColumn_Next(column);
 	    for (i = columnIndex + 1; columnIndex < tree->columnCount &&
 		    dItem->spans[i] == columnIndex; i++) {
-		width += dInfo->columns[i].width;
+		width += TreeColumn_GetDInfo(column2)->width;
+		column2 = TreeColumn_Next(column2);
 	    }
 	    columnIndex = i - 1;
 	}
@@ -2710,6 +2715,7 @@ next:
 	x += width;
 	if (x >= maxX)
 	    break;
+	column = TreeColumn_Next(column);
     }
 }
 
@@ -2844,8 +2850,10 @@ TrackOnScreenColumnsForItem(
     /* Set the list of onscreen columns unless it is the same or the item
     * is hidden. */
     if (n > 0 && dItem != NULL) {
-	value = (TreeColumn *) ckrealloc((char *) value, sizeof(TreeColumn) * (count + 1));
-	memcpy(value, (TreeColumn *) columns.pointers, sizeof(TreeColumn) * count);
+	value = (TreeColumn *) ckrealloc((char *) value,
+		sizeof(TreeColumn) * (count + 1));
+	memcpy(value, (TreeColumn *) columns.pointers,
+		sizeof(TreeColumn) * count);
 	value[count] = NULL;
 	Tcl_SetHashValue(hPtr, (ClientData) value);
     }
@@ -4711,20 +4719,19 @@ DrawWhitespaceBelowItem(
     int index			/* Used for alternating background colors. */
     )
 {
-    TreeDInfo dInfo = tree->dInfo;
-    int i = 0;
-    TreeColumn treeColumn;
+    int i = 0, width;
+    TreeColumn treeColumn = NULL;
     XRectangle boundsBox, columnBox;
 
     switch (lock) {
 	case COLUMN_LOCK_LEFT:
-	    i = TreeColumn_Index(tree->columnLockLeft);
+	    treeColumn = tree->columnLockLeft;
 	    break;
 	case COLUMN_LOCK_NONE:
-	    i = TreeColumn_Index(tree->columnLockNone);
+	    treeColumn = tree->columnLockNone;
 	    break;
 	case COLUMN_LOCK_RIGHT:
-	    i = TreeColumn_Index(tree->columnLockRight);
+	    treeColumn = tree->columnLockRight;
 	    break;
     }
 
@@ -4733,15 +4740,15 @@ DrawWhitespaceBelowItem(
     boundsBox.width = bounds[2] - bounds[0];
     boundsBox.height = bounds[3] - bounds[1];
 
-    for (/*nothing*/; i < tree->columnCount; i++) {
-	treeColumn = dInfo->columns[i].column;
+    for (i = TreeColumn_Index(treeColumn); i < tree->columnCount; i++) {
 	if (TreeColumn_Lock(treeColumn) != lock)
 	    break;
-	if (dInfo->columns[i].width == 0)
-	    continue;
+	width = TreeColumn_GetDInfo(treeColumn)->width;
+	if (width == 0) /* also handles hidden columns */
+	    goto next;
 	columnBox.x = left;
 	columnBox.y = top;
-	columnBox.width = dInfo->columns[i].width;
+	columnBox.width = width;
 	columnBox.height = bounds[3] - top;
 	if (Tree_IntersectRect(&columnBox, &boundsBox, &columnBox)) {
 	    TkSubtractRegion(columnRgn, columnRgn, columnRgn);
@@ -4750,7 +4757,9 @@ DrawWhitespaceBelowItem(
 	    DrawColumnBackground(tree, drawable, treeColumn,
 		    columnRgn, &columnBox, (RItem *) NULL, height, index);
 	}
-	left += dInfo->columns[i].width;
+	left += width;
+next:
+	treeColumn = TreeColumn_Next(treeColumn);
     }
 }
 
@@ -5218,7 +5227,7 @@ Tree_Display(
     ClientData clientData	/* Widget info. */
     )
 {
-    TreeCtrl *tree = (TreeCtrl *) clientData;
+    TreeCtrl *tree = clientData;
     TreeDInfo dInfo = tree->dInfo;
     DItem *dItem;
     Tk_Window tkwin = tree->tkwin;
@@ -5259,45 +5268,49 @@ displayRetry:
     }
 
     /* DINFO_REDO_COLUMN_WIDTH  - A column was created or deleted. */
-    /* DINFO_CHECK_COLUMN_WIDTH - The width of one or more columns
-    *				  *might* have changed. */
+    /* DINFO_CHECK_COLUMN_WIDTH - The width, offset or visibility of one or
+     * 				  more columns *might* have changed. */
     if (dInfo->flags & (DINFO_REDO_COLUMN_WIDTH | DINFO_CHECK_COLUMN_WIDTH)) {
 	TreeColumn treeColumn = tree->columns;
-	ColumnInfo *cinfo;
+	TreeColumnDInfo dColumn;
 	int force = (dInfo->flags & DINFO_REDO_COLUMN_WIDTH) != 0;
-	int changed = force;
-
-	if (dInfo->columnsSize < tree->columnCount) {
-	    dInfo->columnsSize = tree->columnCount + 10;
-	    dInfo->columns = (ColumnInfo *) ckrealloc((char *) dInfo->columns,
-		    sizeof(ColumnInfo) * dInfo->columnsSize);
-	}
+	int redoRanges = force, drawItems = force, drawHeader = force;
+	int offset, width;
 
 	/* Set max -itembackground as well. */
 	tree->columnBgCnt = 0;
 
-	cinfo = dInfo->columns;
 	while (treeColumn != NULL) {
-	    cinfo->column = treeColumn;
-	    cinfo->offset = TreeColumn_Offset(treeColumn);
-	    if (force || (cinfo->width != TreeColumn_UseWidth(treeColumn))) {
-		cinfo->width = TreeColumn_UseWidth(treeColumn);
-		changed = TRUE;
+	    offset = TreeColumn_Offset(treeColumn);
+	    width = TreeColumn_UseWidth(treeColumn);
+	    dColumn = TreeColumn_GetDInfo(treeColumn);
+
+	    /* Haven't seen this column before. */
+	    if (dColumn == NULL) {
+		dColumn = (TreeColumnDInfo) ckalloc(sizeof(TreeColumnDInfo_));
+		TreeColumn_SetDInfo(treeColumn, dColumn);
+		if (width > 0)
+		    redoRanges = drawItems = drawHeader = TRUE;
+	    } else {
+		/* Changes to observed width also detects column visibililty
+		 * changing. */
+		if (dColumn->width != width) {
+		    redoRanges = drawItems = drawHeader = TRUE;
+		} else if ((dColumn->offset != offset) && (width > 0)) {
+		    drawItems = drawHeader = TRUE;
+		}
 	    }
+	    dColumn->offset = offset;
+	    dColumn->width = width;
 	    if (TreeColumn_Visible(treeColumn) &&
 		    (TreeColumn_BackgroundCount(treeColumn) > tree->columnBgCnt))
 		tree->columnBgCnt = TreeColumn_BackgroundCount(treeColumn);
-	    ++cinfo;
 	    treeColumn = TreeColumn_Next(treeColumn);
 	}
+	if (redoRanges) dInfo->flags |= DINFO_REDO_RANGES | DINFO_OUT_OF_DATE;
+	if (drawHeader) dInfo->flags |= DINFO_DRAW_HEADER;
+	if (drawItems)  dInfo->flags |= DINFO_INVALIDATE;
 	dInfo->flags &= ~(DINFO_REDO_COLUMN_WIDTH | DINFO_CHECK_COLUMN_WIDTH);
-	if (changed) {
-	    dInfo->flags |=
-		DINFO_INVALIDATE |
-		DINFO_OUT_OF_DATE |
-		DINFO_REDO_RANGES |
-		DINFO_DRAW_HEADER;
-	}
     }
     if (dInfo->headerHeight != Tree_HeaderHeight(tree)) {
 	dInfo->headerHeight = Tree_HeaderHeight(tree);
@@ -5401,6 +5414,14 @@ displayRetry:
     if (dInfo->flags & DINFO_OUT_OF_DATE) {
 	Tree_UpdateDInfo(tree);
 	dInfo->flags &= ~DINFO_OUT_OF_DATE;
+    }
+    if (dInfo->flags & DINFO_INVALIDATE) {
+	for (dItem = dInfo->dItem; dItem != NULL; dItem = dItem->next) {
+	    dItem->area.flags |= DITEM_DIRTY | DITEM_ALL_DIRTY;
+	    dItem->left.flags |= DITEM_DIRTY | DITEM_ALL_DIRTY;
+	    dItem->right.flags |= DITEM_DIRTY | DITEM_ALL_DIRTY;
+	}
+	dInfo->flags &= ~DINFO_INVALIDATE;
     }
 
     /*
@@ -5764,7 +5785,7 @@ displayRetry:
     if (tree->doubleBuffer == DOUBLEBUFFER_NONE)
 	dInfo->flags |= DINFO_DRAW_HIGHLIGHT | DINFO_DRAW_BORDER;
 
-#if 1 /* Ttk layout draws the borders. */
+#ifdef USE_TTK /* Ttk layout draws the borders. */
     if (dInfo->flags & (DINFO_DRAW_BORDER | DINFO_DRAW_HIGHLIGHT)) {
 	TreeTheme_DrawBorders(tree, drawable);
 	dInfo->flags &= ~(DINFO_DRAW_BORDER | DINFO_DRAW_HIGHLIGHT);
@@ -6409,7 +6430,7 @@ Tree_RelayoutWindow(
 	DINFO_SET_ORIGIN_Y |
 	DINFO_UPDATE_SCROLLBAR_X |
 	DINFO_UPDATE_SCROLLBAR_Y;
-#if 1
+#ifdef USE_TTK
     dInfo->flags |= DINFO_DRAW_HIGHLIGHT;
     dInfo->flags |= DINFO_DRAW_BORDER;
 #else
@@ -6447,7 +6468,9 @@ Tree_RelayoutWindow(
 	dInfo->pixmap = None;
     }
 
+#ifdef USE_TTK
     TreeTheme_Relayout(tree);
+#endif
 
     Tree_EventuallyRedraw(tree);
 }
@@ -6500,7 +6523,7 @@ Tree_FocusChanged(
 	hPtr = Tcl_NextHashEntry(&search);
     }
 
-#if 1
+#ifdef USE_TTK
     dInfo->flags |= DINFO_DRAW_HIGHLIGHT;
     Tree_EventuallyRedraw(tree);
 #else
@@ -6628,6 +6651,7 @@ Tree_InvalidateItemDInfo(
     )
 {
     TreeDInfo dInfo = tree->dInfo;
+    TreeColumn column2;
     DItem *dItem;
     TreeItem item = item1;
     int changed = 0;
@@ -6637,71 +6661,70 @@ Tree_InvalidateItemDInfo(
 
     while (item != NULL) {
 	dItem = (DItem *) TreeItem_GetDInfo(tree, item);
-	if (dItem != NULL) {
-	    if (column == NULL) {
-		dItem->area.flags |= (DITEM_DIRTY | DITEM_ALL_DIRTY);
-		dItem->left.flags |= (DITEM_DIRTY | DITEM_ALL_DIRTY);
-		dItem->right.flags |= (DITEM_DIRTY | DITEM_ALL_DIRTY);
+	if ((dItem == NULL) || DItemAllDirty(tree, dItem))
+	    goto next;
+
+	if (column == NULL) {
+	    dItem->area.flags |= (DITEM_DIRTY | DITEM_ALL_DIRTY);
+	    dItem->left.flags |= (DITEM_DIRTY | DITEM_ALL_DIRTY);
+	    dItem->right.flags |= (DITEM_DIRTY | DITEM_ALL_DIRTY);
+	    changed = 1;
+	} else {
+	    TreeColumnDInfo dColumn = TreeColumn_GetDInfo(column);
+	    int columnIndex, left, width, i;
+	    DItemArea *area = NULL;
+
+	    switch (TreeColumn_Lock(column)) {
+		case COLUMN_LOCK_NONE:
+		    area = &dItem->area;
+		    break;
+		case COLUMN_LOCK_LEFT:
+		    area = &dItem->left;
+		    break;
+		case COLUMN_LOCK_RIGHT:
+		    area = &dItem->right;
+		    break;
+	    }
+
+	    if (area->flags & DITEM_ALL_DIRTY)
+		goto next;
+
+	    columnIndex = TreeColumn_Index(column);
+	    left = dColumn->offset;
+
+	    /* Calculate the width of the entire span. */
+	    /* Do NOT call TreeColumn_UseWidth() or another routine
+	    * that calls Tree_WidthOfColumns() because that may end
+	    * up recalculating the size of items whose display info
+	    * is currently being invalidated. */
+	    if (dItem->spans == NULL) {
+		width = dColumn->width;
 	    } else {
-		/* Do NOT call TreeColumn_UseWidth() or another routine
-		 * that calls Tree_WidthOfColumns() because that may end
-		 * up recalculating the size of items whose display info
-		 * is currently being invalidated. */
-		int columnIndex = TreeColumn_Index(column);
-		int i, left = dInfo->columns[columnIndex].offset;
-		/* This may not be the actual display width if this is the
-		 * only visible non-locked column. */
-		int width = dInfo->columns[columnIndex].width;
-
-		/* If a hidden column was moved we can't rely on
-		 * dInfo->columns[] being in the right order. */
-		if (dInfo->flags & DINFO_CHECK_COLUMN_WIDTH) {
-		    for (i = 0; i < tree->columnCount; i++) {
-			if (dInfo->columns[i].column == column)
-			    break;
-		    }
-		    if (i == tree->columnCount) {
-			panic("Tree_InvalidateItemDInfo: can't find a column");
-		    }
-		    left = dInfo->columns[i].offset;
-		    width = dInfo->columns[i].width;
-		}
-
-		/* Calculate the width of the entire span. */
-		if (dItem->spans == NULL) {
-		    width = dInfo->columns[columnIndex].width;
-		} else {
-		    width = 0;
-		    i = dItem->spans[columnIndex];
-		    while (dItem->spans[i] == dItem->spans[columnIndex]) {
-			width += dInfo->columns[i].width;
-			if (++i == tree->columnCount)
-			    break;
-		    }
-		}
-
-		switch (TreeColumn_Lock(column)) {
-		    case COLUMN_LOCK_NONE:
-			if (tree->columnCountVis == 1)
-			    width = dItem->area.width;
-			InvalidateDItemX(dItem, &dItem->area, 0, left, width);
-			InvalidateDItemY(dItem, &dItem->area, dItem->y, dItem->y, dItem->height);
-			dItem->area.flags |= DITEM_DIRTY;
+		width = 0;
+		column2 = column;
+		i = dItem->spans[columnIndex];
+		while (dItem->spans[i] == dItem->spans[columnIndex]) {
+		    width += TreeColumn_GetDInfo(column2)->width;
+		    if (++i == tree->columnCount)
 			break;
-		    case COLUMN_LOCK_LEFT:
-			InvalidateDItemX(dItem, &dItem->left, 0, left, width);
-			InvalidateDItemY(dItem, &dItem->left, 0, 0, dItem->height);
-			dItem->left.flags |= DITEM_DIRTY;
-			break;
-		    case COLUMN_LOCK_RIGHT:
-			InvalidateDItemX(dItem, &dItem->right, 0, left, width);
-			InvalidateDItemY(dItem, &dItem->right, 0, 0, dItem->height);
-			dItem->right.flags |= DITEM_DIRTY;
-			break;
+		    column2 = TreeColumn_Next(column2);
 		}
 	    }
-	    changed = 1;
+
+	    /* If only one column is visible, the width may be
+	    * different than the column width. */
+	    if (TreeColumn_Lock(column) == COLUMN_LOCK_NONE)
+		if (tree->columnCountVis == 1)
+		    width = area->width;
+
+	    if (width > 0) {
+		InvalidateDItemX(dItem, area, 0, left, width);
+		InvalidateDItemY(dItem, area, 0, 0, dItem->height);
+		area->flags |= DITEM_DIRTY;
+		changed = 1;
+	    }
 	}
+next:
 	if (item == item2 || item2 == NULL)
 	    break;
 	item = TreeItem_Next(tree, item);
@@ -6768,6 +6791,7 @@ TreeDisplay_ColumnDeleted(
     TreeColumn column		/* Column to remove. */
     )
 {
+    TreeColumnDInfo dColumn = TreeColumn_GetDInfo(column);
 #ifdef DCOLUMN
     TreeDInfo dInfo = tree->dInfo;
     Tcl_HashSearch search;
@@ -6794,6 +6818,9 @@ if (tree->debug.enable && tree->debug.display)
 	hPtr = Tcl_NextHashEntry(&search);
     }
 #endif
+
+    if (dColumn != NULL)
+	ckfree((char *) dColumn);
 }
 
 /*
@@ -6887,7 +6914,7 @@ Tree_InvalidateArea(
 	dItem = dItem->next;
     }
 
-#if 1
+#ifdef USE_TTK
     if ((x1 < Tree_BorderLeft(tree)) ||
 	    (y1 < Tree_BorderTop(tree)) ||
 	    (x2 > Tree_BorderRight(tree)) ||
@@ -7025,7 +7052,7 @@ Tree_InvalidateRegion(
 	dItem = dItem->next;
     }
 
-#if 1
+#ifdef USE_TTK
     TkClipBox(region, &rect);
     x1 = rect.x, x2 = rect.x + rect.width;
     y1 = rect.y, y2 = rect.y + rect.height;
@@ -7166,8 +7193,6 @@ TreeDInfo_Init(
     gcValues.graphics_exposures = True;
     dInfo->scrollGC = Tk_GetGC(tree->tkwin, GCGraphicsExposures, &gcValues);
     dInfo->flags = DINFO_OUT_OF_DATE;
-    dInfo->columnsSize = 10;
-    dInfo->columns = (ColumnInfo *) ckalloc(sizeof(ColumnInfo) * dInfo->columnsSize);
     dInfo->wsRgn = TkCreateRegion();
     Tcl_InitHashTable(&dInfo->itemVisHash, TCL_ONE_WORD_KEYS);
     tree->dInfo = dInfo;
@@ -7233,7 +7258,6 @@ TreeDInfo_Free(
     }
 #endif
     Tcl_DeleteHashTable(&dInfo->itemVisHash);
-    ckfree((char *) dInfo->columns);
     WFREE(dInfo, TreeDInfo_);
 }
 

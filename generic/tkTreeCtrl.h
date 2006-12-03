@@ -13,8 +13,10 @@
 #include "tkPort.h"
 #include "default.h"
 #include "tkInt.h"
+#ifdef USE_TTK
 #include "ttk/ttkTheme.h"
 #include "ttk/ttkWidget.h"
+#endif
 #include "qebind.h"
 
 #ifdef HAVE_DBWIN_H
@@ -41,6 +43,7 @@
 
 typedef struct TreeCtrl TreeCtrl;
 typedef struct TreeColumn_ *TreeColumn;
+typedef struct TreeColumnDInfo_ *TreeColumnDInfo;
 typedef struct TreeDInfo_ *TreeDInfo;
 typedef struct TreeDragImage_ *TreeDragImage;
 typedef struct TreeItem_ *TreeItem;
@@ -146,8 +149,10 @@ struct TreeCtrl
     Tcl_Command widgetCmd;
     Tk_OptionTable optionTable;
 
+#ifdef USE_TTK
     /* Ttk */
     Ttk_Box clientBox;
+#endif
 
     /* Configuration options */
     Tcl_Obj *fgObj;		/* -foreground */
@@ -404,6 +409,7 @@ extern void Tree_ReleaseItems(TreeCtrl *tree);
 extern int Tree_StateFromObj(TreeCtrl *tree, Tcl_Obj *obj, int states[3], int *indexPtr, int flags);
 extern int Tree_StateFromListObj(TreeCtrl *tree, Tcl_Obj *obj, int states[3], int flags);
 
+#ifdef USE_TTK
 #define Tree_BorderLeft(tree) \
     tree->clientBox.x
 #define Tree_BorderTop(tree) \
@@ -412,6 +418,16 @@ extern int Tree_StateFromListObj(TreeCtrl *tree, Tcl_Obj *obj, int states[3], in
     (tree->clientBox.x + tree->clientBox.width)
 #define Tree_BorderBottom(tree) \
     (tree->clientBox.y + tree->clientBox.height)
+#else /* !USE_TTK */
+#define Tree_BorderLeft(tree) \
+    tree->inset
+#define Tree_BorderTop(tree) \
+    tree->inset
+#define Tree_BorderRight(tree) \
+    (Tk_Width(tree->tkwin) - tree->inset)
+#define Tree_BorderBottom(tree) \
+    (Tk_Height(tree->tkwin) - tree->inset)
+#endif /* !USE_TTK */
 
 #define Tree_HeaderLeft(tree) \
     Tree_BorderLeft(tree)
@@ -492,7 +508,7 @@ extern int TreeItem_ChangeState(TreeCtrl *tree, TreeItem item_, int stateOff, in
 
 extern void TreeItem_UndefineState(TreeCtrl *tree, TreeItem item_, int state);
 
-extern int TreeItem_GetButton(TreeCtrl *tree, TreeItem item_);
+extern int TreeItem_HasButton(TreeCtrl *tree, TreeItem item_);
 extern int TreeItem_GetDepth(TreeCtrl *tree, TreeItem item_);
 extern int TreeItem_GetID(TreeCtrl *tree, TreeItem item_);
 extern int TreeItem_SetID(TreeCtrl *tree, TreeItem item_, int id);
@@ -681,7 +697,7 @@ extern int TreeColumn_MaxWidth(TreeColumn column_);
 extern int TreeColumn_NeededWidth(TreeColumn column_);
 extern int TreeColumn_UseWidth(TreeColumn column_);
 extern int TreeColumn_Offset(TreeColumn column_);
-extern Tk_Justify TreeColumn_Justify(TreeColumn column_);
+extern Tk_Justify TreeColumn_ItemJustify(TreeColumn column_);
 #ifdef DEPRECATED
 extern int TreeColumn_WidthHack(TreeColumn column_);
 extern int TreeColumn_StepWidth(TreeColumn column_);
@@ -707,6 +723,8 @@ extern int Tree_WidthOfColumns(TreeCtrl *tree);
 extern int Tree_WidthOfLeftColumns(TreeCtrl *tree);
 extern int Tree_WidthOfRightColumns(TreeCtrl *tree);
 extern void TreeColumn_TreeChanged(TreeCtrl *tree, int flagT);
+extern void TreeColumn_SetDInfo(TreeColumn column, TreeColumnDInfo dInfo);
+extern TreeColumnDInfo TreeColumn_GetDInfo(TreeColumn column);
 
 /* tkTreeDrag.c */
 extern int TreeDragImage_Init(TreeCtrl *tree);
@@ -817,6 +835,7 @@ extern int TreeTheme_DrawHeaderArrow(TreeCtrl *tree, Drawable drawable, int up, 
 extern int TreeTheme_DrawButton(TreeCtrl *tree, Drawable drawable, int open, int x, int y, int width, int height);
 extern int TreeTheme_GetButtonSize(TreeCtrl *tree, Drawable drawable, int open, int *widthPtr, int *heightPtr);
 extern int TreeTheme_GetArrowSize(TreeCtrl *tree, Drawable drawable, int up, int *widthPtr, int *heightPtr);
+extern int TreeTheme_ComputeGeometry(TreeCtrl *tree);
 
 /* tkTreeUtils.c */
 #ifdef TREECTRL_DEBUG
@@ -1058,6 +1077,11 @@ extern int DynamicCO_Init(Tk_OptionSpec *optionTable, CONST char *optionName,
 
 extern int BooleanFlagCO_Init(Tk_OptionSpec *optionTable, CONST char *optionName,
     int theFlag);
+extern int ItemButtonCO_Init(Tk_OptionSpec *optionTable, CONST char *optionName,
+    int flag1, int flag2);
+
+extern int Tree_GetIntForIndex(TreeCtrl *tree, Tcl_Obj *objPtr, int *indexPtr,
+    int *endRelativePtr);
 
 extern Tk_ObjCustomOption pixelsCO;
 extern Tk_ObjCustomOption stringCO;
