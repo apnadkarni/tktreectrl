@@ -2698,7 +2698,7 @@ GetOnScreenColumnsForItemAux(
 	    if (dItem->spans[columnIndex] != columnIndex)
 		goto next;
 	    /* Start of a span */
-	    for (i = columnIndex + 1; columnIndex < tree->columnCount &&
+	    for (i = columnIndex + 1; i < tree->columnCount &&
 		    dItem->spans[i] == columnIndex; i++) {
 		width += dInfo->columns[i].width;
 	    }
