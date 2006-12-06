@@ -723,6 +723,7 @@ DotRect_Restore(
     SetGWorld(dotState->saveWorld, dotState->saveDevice);
 #else
     XSetClipMask(dotState->tree->display, dotState->gc, None);
+    TkDestroyRegion(dotState->rgn);
     Tk_FreeGC(dotState->tree->display, dotState->gc);
 #endif
 }
