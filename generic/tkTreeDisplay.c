@@ -6653,10 +6653,16 @@ Tree_InvalidateItemDInfo(
 		/* Calculate the width of the entire span. */
 		if (dItem->spans == NULL) {
 		    width = dInfo->columns[columnIndex].width;
+
+		/* If the column being redrawn is not the first in the span,
+		* then do nothing. */
+		} else if (columnIndex != dItem->spans[columnIndex]) {
+		    goto next;
+
 		} else {
 		    width = 0;
-		    i = dItem->spans[columnIndex];
-		    while (dItem->spans[i] == dItem->spans[columnIndex]) {
+		    i = columnIndex;
+		    while (dItem->spans[i] == columnIndex) {
 			width += dInfo->columns[i].width;
 			if (++i == tree->columnCount)
 			    break;
@@ -6685,6 +6691,7 @@ Tree_InvalidateItemDInfo(
 	    }
 	    changed = 1;
 	}
+next:
 	if (item == item2 || item2 == NULL)
 	    break;
 	item = TreeItem_Next(tree, item);
