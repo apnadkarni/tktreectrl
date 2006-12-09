@@ -8,12 +8,12 @@
 '\"
 '\"   $Id$
 .so man.macros
-.TH "treectrl" n 2.2 treectrl "Tk Commands"
+.TH "treectrl" n 2.2.1 treectrl "Tk Commands"
 .BS
-.SH "NAME"
+.SH NAME
 treectrl \- Create and manipulate hierarchical multicolumn widgets
-.SH "SYNOPSIS"
-package require \fBtreectrl  2.2\fR
+.SH SYNOPSIS
+package require \fBtreectrl  2.2.1\fR
 .sp
 \fBtreectrl\fR \fIpathName\fR ?\fIoptions\fR?
 .sp
@@ -354,7 +354,7 @@ package require \fBtreectrl  2.2\fR
 \fIpathName\fR \fByview scroll\fR \fInumber\fR \fIwhat\fR
 .sp
 .BE
-.SH "DESCRIPTION"
+.SH DESCRIPTION
 .TP
 \fBtreectrl\fR \fIpathName\fR ?\fIoptions\fR?
 .PP
@@ -2766,7 +2766,7 @@ visible;  if it is positive then lower information
 becomes visible.
 A \fB<Scroll-y>\fR event is generated.
 .RE
-.SH "COLUMNS"
+.SH COLUMNS
 A treectrl widget is capable of displaying multiple columns next to each
 other.
 An item can be considered as a row, which reaches over all columns.
@@ -3072,7 +3072,7 @@ TRUE are considered.
 \fB!visible\fR
 When this qualifier is given, only columns whose \fB-visible\fR option is
 FALSE are considered.
-.SH "STATES"
+.SH STATES
 For every item a set of boolean states is managed. These states play an
 integral role in the appearance of each item.
 The following states are predefined for every item:
@@ -3149,7 +3149,7 @@ In the example above, the \fBrect\fR element is filled with blue when the treect
 has the focus and the item is selected. If the treectrl does not have the focus, the
 example specifies that gray should be used for selected items. Also note that if the
 item is not selected, no color is specified for the -fill option.
-.SH "ELEMENTS"
+.SH ELEMENTS
 Elements are the smallest building blocks
 which are handled by a treectrl widget.
 One or more elements together can be combined to a style,
@@ -3889,7 +3889,7 @@ the Return key toggles the active item.
 The mousewheel scrolls the view of the widget four lines up or down
 depending on the direction, the wheel was turned.
 The active cursor or the selection is not affected.
-.SH "EXAMPLES"
+.SH EXAMPLES
 Get the unique identifier for the leftmost visible column:
 .nf
 
@@ -3939,5 +3939,5 @@ $T notify bind MyTag <ColumnDrag-receive> {
 .fi
 .SH "SEE ALSO"
 bind(n), bitmap(n), image(n), listbox(n), options(n)
-.SH "KEYWORDS"
+.SH KEYWORDS
 tree, widget

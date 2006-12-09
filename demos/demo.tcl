@@ -2,7 +2,7 @@
 
 # RCS: @(#) $Id$
 
-set VERSION 2.2
+set VERSION 2.2.1
 
 package require Tk 8.4
 
