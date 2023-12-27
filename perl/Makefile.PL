@@ -48,7 +48,7 @@ my @c = (
     ),
     ($^O eq 'MSWin32' ? '../win/tkWinTree' : ()),
     ($^O eq 'linux' ? '../unix/tkUnixTree' : ()),
-    ($^O eq 'linux' ? '../macosx/tkMacOSXTree' : ()),
+    ($^O eq 'darwin' ? '../macosx/tkMacOSXTree' : ()),
 );
 
 

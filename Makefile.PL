@@ -11,7 +11,7 @@ use ExtUtils::MakeMaker;
 
 eval {
     WriteMakefile(
-        VERSION => '2.4.2.2',
+        VERSION => '2.4.2.3',
         NAME => "Tcl::Tk::Tkwidget::treectrl",
         PREREQ_FATAL => 1,
         PREREQ_PM => {
