@@ -12,13 +12,10 @@ GetOptions(
 usage() if $help;
 sub usage {
     print <<'EOT';
-Usage: perl Makefile.PL [--tclsh <path>] [--force] [<makemaker opts>...]
+Usage: perl Makefile.PL [--force] [<makemaker opts>...]
 
 if Tcl/Tk already have required treectrl package, then do nothing.
 --force option means that rebuilding of treectrl will happen anyway.
-
---tclsh option is mostly for users, who want specific setup.
-Default autodetection should be fine.
 EOT
     exit;
 }
@@ -73,13 +70,38 @@ EOS
     );
 }
 else {
+    my $write_makefile = 1;
+    my $sh_config1;
+    my $tk_config = '';
+
+    if ($^O eq 'cygwin' or $^O eq 'linux' or $^O eq 'darwin') {
+	# salto mortale: build all needed *.o now
+	mkdir "build";
+	chdir "build";
+	print STDERR "doing configure; make";
+	system("../../configure")
+	||
+	system("make")
+	|| ($write_makefile=1);
+	chdir "..";
+
+	# now get config parameters from ./build/config.status 
+	system("./build/config.status --file=tcl-conf-vars.sh");
+
+	$sh_config1 = "tcl-conf-vars.sh";
+    }
+    else {
+	open my $fh, "<".$int->GetVar('tcl_library')."/../tkConfig.sh";
+	$tk_config = join '', <$fh>;
+	close $fh;
+	$sh_config1 = $int->GetVar('tcl_library')."/../tclConfig.sh";
+    }
+
+
     # read tcl compile options
     # TODO let's $int know these values
-    open my $fh, "<".$int->GetVar('tcl_library')."/../tclConfig.sh";
+    open my $fh, "<" . $sh_config1;
     my $tcl_config = join '', <$fh>;
-    close $fh;
-    open $fh, "<".$int->GetVar('tcl_library')."/../tkConfig.sh";
-    my $tk_config = join '', <$fh>;
     close $fh;
     my ($tcl_incspec, $tcl_libspec, $tk_libspec, $tcl_defs, $tk_defs) = (
 	$tcl_config=~/^TCL_INCLUDE_SPEC='(.*?)'/m, 
@@ -107,33 +129,37 @@ sub init {
 1;
 EOS
     close $fh_out;
-    WriteMakefile(
-	NAME => "Tcl::Tk::Tkwidget::treectrl",
-	#? VERSION => '2.4.2',
-	LICENSE => 'perl',
-	MIN_PERL_VERSION => '5.006',
-	META_MERGE => {
-	    "meta-spec" => { version => 2 },
-	    resources => {
-		repository => {
-		    type => 'git',
-		    web => 'https://github.com/vadrer/tktreectrl',
-		    url => 'https://github.com/vadrer/tktreectrl',
+    if ($write_makefile;) {
+	WriteMakefile(
+	    NAME => "Tcl::Tk::Tkwidget::treectrl",
+	    #? VERSION => '2.4.2',
+	    LICENSE => 'perl',
+	    MIN_PERL_VERSION => '5.006',
+	    META_MERGE => {
+		"meta-spec" => { version => 2 },
+		resources => {
+		    repository => {
+			type => 'git',
+			web => 'https://github.com/vadrer/tktreectrl',
+			url => 'https://github.com/vadrer/tktreectrl',
+		    },
+		    MailingList => 'mailto:tcltk@perl.org',
 		},
-		MailingList => 'mailto:tcltk@perl.org',
+		keywords => [qw(Tk Tcl/Tk tktreectrl GUI)],
 	    },
-	    keywords => [qw(Tk Tcl/Tk tktreectrl GUI)],
-	},
-	PREREQ_PM => {
-	    'Tcl::Tk' => 1.0,
-	},
-	PMLIBDIRS    => ['../library', '../demos', '../doc'],
-	INC          => "$tcl_incspec -I../generic",
-	LIBS         => "$tcl_libspec $tk_libspec" . ($^O eq 'MSWin32' ? ' -lUxTheme' : ''),
-	OBJECT       => 'treectrl.o ' . join(' ', map {s/^.*\///r . ".o"} @c),
-	DEFINE       => $DEFS,
-	dist         => { COMPRESS => 'gzip -9f', SUFFIX => 'gz', },
-    );
+	    PREREQ_PM => {
+		'Tcl::Tk' => 1.0,
+	    },
+	    PMLIBDIRS    => ['../library', '../demos', '../doc'],
+	    INC          => "$tcl_incspec -I../generic",
+	    LIBS         => "$tcl_libspec $tk_libspec" . ($^O eq 'MSWin32' ? ' -lUxTheme' : ''),
+	    OBJECT       => 'treectrl.o ' . join(' ', map {'build/'.s/^.*\///r . ".o"} @c),
+	    DEFINE       => $DEFS,
+	    dist         => { COMPRESS => 'gzip -9f', SUFFIX => 'gz', },
+	);
+    } else  {
+	die "errors. will not write Makefile";
+    }
 }
 
 sub MY::postamble {

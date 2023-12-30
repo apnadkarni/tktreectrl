@@ -96,7 +96,6 @@ doc/treectrl.man
 doc/treectrl.n
 
 
-generic/default.h
 generic/qebind.c
 generic/qebind.h
 generic/tkTreeColumn.c
