@@ -45,6 +45,7 @@ my @c = (
     ),
     ($^O eq 'MSWin32' ? '../win/tkWinTree' : ()),
     ($^O eq 'linux' ? '../unix/tkUnixTree' : ()),
+    ($^O eq 'cygwin' ? '../unix/tkUnixTree' : ()),
     ($^O eq 'darwin' ? '../macosx/tkMacOSXTree' : ()),
 );
 
@@ -71,45 +72,62 @@ EOS
 }
 else {
     my $write_makefile = 1;
-    my $sh_config1;
-    my $tk_config = '';
+    my ($tcl_incspec, $tcl_libspec, $tk_libspec, $defs, $libs);
 
     if ($^O eq 'cygwin' or $^O eq 'linux' or $^O eq 'darwin') {
 	# salto mortale: build all needed *.o now
 	mkdir "build";
 	chdir "build";
 	print STDERR "doing configure; make";
-	system("../../configure")
-	||
-	system("make")
-	|| ($write_makefile=1);
+	#system("../../configure")
+	#||
+	#system("make")
+	#|| ($write_makefile=1);
+	$write_makefile=1;
 	chdir "..";
 
 	# now get config parameters from ./build/config.status 
 	system("./build/config.status --file=tcl-conf-vars.sh");
 
-	$sh_config1 = "tcl-conf-vars.sh";
+	open my $fh, "<" . "tcl-conf-vars.sh";
+	my $tcl_config = join '', <$fh>;
+	close $fh;
+	my ($tcl_includes) = $tcl_config=~/^TCL_INCLUDES='(.*?)'/m;
+	my ($tk_includes)  = $tcl_config=~/^TK_INCLUDES='(.*?)'/m;
+	my ($tcl_libs)     = ''; # $tcl_config=~/^TCL_LIBS='(.*?)'/m;
+	my ($tk_libs)      = $tcl_config=~/^TK_LIBS='(.*?)'/m;
+	my ($tcl_stub_lib_file)      = $tcl_config=~/^TCL_STUB_LIB_FILE='(.*?)'/m;
+	my ($tk_stub_lib_file)      = $tcl_config=~/^TK_STUB_LIB_FILE='(.*?)'/m;
+	my ($tcl_stub_lib_spec)      = $tcl_config=~/^TCL_STUB_LIB_SPEC='(.*?)'/m;
+	my ($tk_stub_lib_spec)      = $tcl_config=~/^TK_STUB_LIB_SPEC='(.*?)'/m;
+	($tcl_libspec)     = $tcl_config=~/^TCL_LIB_SPEC='(.*?)'/m;
+	($tk_libspec)      = $tcl_config=~/^TK_LIB_SPEC='(.*?)'/m;
+	($defs)            = $tcl_config=~/^DEFS='(.*?)'/m;
+	$tcl_incspec = "$tcl_includes $tk_includes";
+	$libs = "$tcl_libs $tk_libs $tcl_libspec $tk_libspec $tcl_stub_lib_spec $tk_stub_lib_spec";
     }
     else {
 	open my $fh, "<".$int->GetVar('tcl_library')."/../tkConfig.sh";
-	$tk_config = join '', <$fh>;
+	my $tk_config = join '', <$fh>;
 	close $fh;
-	$sh_config1 = $int->GetVar('tcl_library')."/../tclConfig.sh";
+	# TODO let's $int know these values
+	open $fh, "<" . $int->GetVar('tcl_library')."/../tclConfig.sh";
+	my $tcl_config = join '', <$fh>;
+	close $fh;
+	($tcl_incspec, $tcl_libspec, $tk_libspec, my $tcl_defs, my $tk_defs) = (
+	    $tcl_config=~/^TCL_INCLUDE_SPEC='(.*?)'/m,
+			  $tcl_config=~/^TCL_LIB_SPEC='(.*?)'/m,
+					$tk_config=~/^TK_LIB_SPEC='(.*?)'/m,
+						     $tcl_config=~/^TCL_DEFS='(.*?)'/m,
+								$tk_config=~/^TK_DEFS='(.*?)'/m);
+	$defs = "$tcl_defs $tk_defs";
     }
 
 
     # read tcl compile options
-    # TODO let's $int know these values
-    open my $fh, "<" . $sh_config1;
-    my $tcl_config = join '', <$fh>;
-    close $fh;
-    my ($tcl_incspec, $tcl_libspec, $tk_libspec, $tcl_defs, $tk_defs) = (
-	$tcl_config=~/^TCL_INCLUDE_SPEC='(.*?)'/m, 
-	              $tcl_config=~/^TCL_LIB_SPEC='(.*?)'/m,
-				    $tk_config=~/^TK_LIB_SPEC='(.*?)'/m,
-		       			         $tcl_config=~/^TCL_DEFS='(.*?)'/m,
-							    $tk_config=~/^TK_DEFS='(.*?)'/m);
-    my $DEFS = "$tcl_defs -DUSE_TCL_STUBS=1 $tk_defs -DUSE_TK_STUBS=1"=~y/\\//dr;
+    my $DEFS = "$defs -DUSE_TCL_STUBS=1 -DUSE_TK_STUBS=1"=~y/\\//dr;
+    my $DEFS = "$defs -DUSE_TCL_STUBS=1 "=~y/\\//dr;
+    #my $DEFS = "$defs "=~y/\\//dr;
 print STDERR "(tcl_incspec,tcl_libspec,tk_libspec)=($tcl_incspec, $tcl_libspec, $tk_libspec)\n";
     open my $fh_out, ">treectrl.pm";
     print $fh_out <<'EOS';
@@ -129,7 +147,7 @@ sub init {
 1;
 EOS
     close $fh_out;
-    if ($write_makefile;) {
+    if ($write_makefile) {
 	WriteMakefile(
 	    NAME => "Tcl::Tk::Tkwidget::treectrl",
 	    #? VERSION => '2.4.2',
@@ -152,7 +170,7 @@ EOS
 	    },
 	    PMLIBDIRS    => ['../library', '../demos', '../doc'],
 	    INC          => "$tcl_incspec -I../generic",
-	    LIBS         => "$tcl_libspec $tk_libspec" . ($^O eq 'MSWin32' ? ' -lUxTheme' : ''),
+	    LIBS         => "$libs" . ($^O eq 'MSWin32' ? ' -lUxTheme' : ''),
 	    OBJECT       => 'treectrl.o ' . join(' ', map {'build/'.s/^.*\///r . ".o"} @c),
 	    DEFINE       => $DEFS,
 	    dist         => { COMPRESS => 'gzip -9f', SUFFIX => 'gz', },
