@@ -1,5 +1,6 @@
 MANIFEST
 Makefile.PL
+Makefile.in
 README.md
 aclocal.m4
 configure
@@ -126,6 +127,7 @@ perl/test.pl
 perl/treectrl.xs
 perl/treectrl.pm
 perl/typemap
+perl/tcl-conf-vars.sh.in
 
 
 

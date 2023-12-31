@@ -71,7 +71,7 @@ EOS
     );
 }
 else {
-    my $write_makefile = 1;
+    my $write_makefile = 0;
     my ($tcl_incspec, $tcl_libspec, $tk_libspec, $defs, $libs);
 
     if ($^O eq 'cygwin' or $^O eq 'linux' or $^O eq 'darwin') {
@@ -79,11 +79,12 @@ else {
 	mkdir "build";
 	chdir "build";
 	print STDERR "doing configure; make";
-	#system("../../configure")
-	#||
-	#system("make")
-	#|| ($write_makefile=1);
-	$write_makefile=1;
+	if (1) {
+	    system("../../configure") ||
+	    system("make") || ($write_makefile=1);
+	} else {
+	    $write_makefile=1;
+	}
 	chdir "..";
 
 	# now get config parameters from ./build/config.status 
@@ -104,7 +105,7 @@ else {
 	($tk_libspec)      = $tcl_config=~/^TK_LIB_SPEC='(.*?)'/m;
 	($defs)            = $tcl_config=~/^DEFS='(.*?)'/m;
 	$tcl_incspec = "$tcl_includes $tk_includes";
-	$libs = "$tcl_libs $tk_libs $tcl_libspec $tk_libspec $tcl_stub_lib_spec $tk_stub_lib_spec";
+	$libs = "$tcl_libs $tk_libs  $tcl_stub_lib_spec $tk_stub_lib_spec"; #$tcl_libspec $tk_libspec
     }
     else {
 	open my $fh, "<".$int->GetVar('tcl_library')."/../tkConfig.sh";
@@ -126,8 +127,6 @@ else {
 
     # read tcl compile options
     my $DEFS = "$defs -DUSE_TCL_STUBS=1 -DUSE_TK_STUBS=1"=~y/\\//dr;
-    my $DEFS = "$defs -DUSE_TCL_STUBS=1 "=~y/\\//dr;
-    #my $DEFS = "$defs "=~y/\\//dr;
 print STDERR "(tcl_incspec,tcl_libspec,tk_libspec)=($tcl_incspec, $tcl_libspec, $tk_libspec)\n";
     open my $fh_out, ">treectrl.pm";
     print $fh_out <<'EOS';
