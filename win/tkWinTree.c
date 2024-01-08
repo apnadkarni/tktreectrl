@@ -2889,10 +2889,11 @@ TreeDraw_InitInterp(
 	     * DLLs also call this, probably it is okay. */
 	    status = DllExports._GdiplusStartup(&appDrawData->token, &input,
 #if 1
-		NULL);
+		NULL
 #else
-		&appDrawData->output);
+		&appDrawData->output
 #endif
+	    );
 	    if (status != Ok) {
 		DllExports.handle = NULL;
 	    }
