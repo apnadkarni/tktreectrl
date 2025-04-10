@@ -1,5 +1,7 @@
 # tktreectrl
 
+**NOTE: this repository is obsolete. The tktreectrl port to Tcl/Tk 9 is at https://github.com/tcltk-depot/tktreectrl/tree/master**
+
 This is a fork of the original tktreectrl project at http://tktreectrl.sf.net/.
 
 The modifications in this fork are
